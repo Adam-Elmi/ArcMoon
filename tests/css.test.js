@@ -174,6 +174,23 @@ describe("css. props", () => {
 		expect(html).toContain(`<div class="card card-gray" style="border: 1px solid">`);
 	});
 
+	it("writes nothing for an empty value", async () => {
+		expect(await compile(`[p = css.align-self: "", css.color: "  ", css.width: "50%"]x[end]`)).toBe(`<p style="width: 50%">x</p>`);
+		expect(await compile(`[p = css.color: ""]x[end]`)).toBe(`<p>x</p>`);
+	});
+
+	it("gives only the error, not the typo warning, for a name that can't be a property", async () => {
+		const { warnings: w } = await warnings(`[p = css.colr: "red" !]`);
+		expect(w).toHaveLength(1);
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+		try {
+			await expect(compile(`[p = css.1x: "red"]x[end]`)).rejects.toThrow(/css\.1x on \[p\] is not a valid CSS property name/);
+			expect(warn).not.toHaveBeenCalled();
+		} finally {
+			warn.mockRestore();
+		}
+	});
+
 	it("refuses ; { } and bad names", async () => {
 		await expect(compile(`[p = css.color: "red; background: url(x)"]x[end]`)).rejects.toThrow(/css\.color on \[p\] can't contain ";", "\{" or "\}"/);
 		await expect(compile(`[p = css.: "red"]x[end]`)).rejects.toThrow(/css\. on \[p\] is not a valid CSS property name/);

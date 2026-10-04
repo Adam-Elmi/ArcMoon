@@ -66,7 +66,10 @@ export default function unknownTags(graph) {
 				if (node.type === N.BLOCK) {
 					for (const key of Object.keys(node.props ?? {})) {
 						const name = key.startsWith("css.") ? key.slice(4) : null;
-						if (!name || name.startsWith("--") || /^-[a-z]+-/i.test(name) || CSS.has(name.toLowerCase())) continue;
+						// ###################
+						// A name that can't be a CSS property (css., css.1x) gets the build error instead
+						// ###################
+						if (!name || !/^-{0,2}[A-Za-z][A-Za-z0-9-]*$/.test(name) || name.startsWith("--") || /^-[a-z]+-/i.test(name) || CSS.has(name.toLowerCase())) continue;
 						const hint = closest(name.toLowerCase(), CSS_LIST);
 						warnings.push({
 							source: mod.id,

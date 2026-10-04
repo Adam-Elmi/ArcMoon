@@ -31,6 +31,9 @@
   "engines": {
     "node": ">=20.10"
   },
+  "publishConfig": {
+    "tag": "beta"
+  },
   "type": "module",
   "dependencies": {
     "@babel/code-frame": "^8.0.6",

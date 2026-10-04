@@ -63,6 +63,10 @@ const toProperties = (props, schema, tagName, data = {}, exact = []) => {
 			if (isRuntime(value)) notYet(value);
 			if (value === null || value === undefined || value === false) continue;
 			// ###################
+			// css.name: "" (not filled in yet) writes nothing, not "name: ;"
+			// ###################
+			if (css && String(value).trim() === "") continue;
+			// ###################
 			// ; { } would end the declaration and add other CSS to the style attribute
 			// ###################
 			if (/[;{}]/.test(String(value))) {
