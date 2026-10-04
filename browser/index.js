@@ -24,10 +24,18 @@ let nextMessage = 0;
 let nextRender = 0;
 
 // ###################
-// One worker for the page, started on first use
+// One worker for the page, started on first use. Browsers only start workers from the page's
+// own origin, so from a CDN it starts as a same-origin blob: file that imports the CDN's worker.js
 // ###################
+const startWorker = () => {
+	const url = new URL("./worker.js", import.meta.url);
+	if (typeof location === "undefined" || url.origin === location.origin) return new Worker(url, { type: "module" });
+	const blob = new Blob([`import ${JSON.stringify(url.href)};`], { type: "text/javascript" });
+	return new Worker(URL.createObjectURL(blob), { type: "module" });
+};
+
 const defaultWorker = () => {
-	sharedWorker ??= new Worker(new URL("./worker.js", import.meta.url), { type: "module" });
+	sharedWorker ??= startWorker();
 	return sharedWorker;
 };
 

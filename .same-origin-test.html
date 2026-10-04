@@ -1,0 +1,13 @@
+<!doctype html><html><body><pre id="out">waiting</pre>
+<script type="module">
+const out = document.getElementById("out");
+const log = (m) => (out.textContent += "\n" + m);
+window.addEventListener("error", (e) => log("window error: " + e.message));
+try {
+  const { default: ArcMoon } = await import("/dist/browser.js");
+  log("imported: " + typeof ArcMoon);
+  const html = await new ArcMoon({ src: "${ const n = 2; }$[p]Hi ${ n }$[end]", timeout: 60000 }).compile();
+  log("compiled: " + html);
+} catch (err) { log("ERROR: " + (err?.stack ?? err)); }
+log("done");
+</script></body></html>
