@@ -166,7 +166,7 @@ describe("protector: local scripts are scanned", () => {
 			expect([...report.fetch]).toEqual(["evil.example"]);
 			expect([...report.env]).toEqual(["GITHUB_TOKEN"]);
 			expect(report.dynamic).toEqual([`eval() at ${join(dir, "theme/deep.js")}:3:1`]);
-			expect([...report.localScripts].map((f) => f.slice(dir.length + 1)).sort()).toEqual(["theme/deep.js", "theme/helper.js"]);
+			expect([...report.localScripts].map((f) => f.slice(dir.length + 1).replaceAll("\\", "/")).sort()).toEqual(["theme/deep.js", "theme/helper.js"]);
 			expect(report.exports).toEqual([]);
 		} finally {
 			await rm(dir, { recursive: true, force: true });

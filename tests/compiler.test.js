@@ -85,6 +85,12 @@ describe("compile: lines with no output", () => {
 		expect(html.split("<script")[0]).toBe(`<main>\n  <p>2</p>\n\n  <p>b</p>\n</main>`);
 	});
 
+	it("does the same for files with Windows line endings (\\r\\n), keeping them in the output", async () => {
+		const src = [`[import = Card: "./components/Card.arcm" !]`, `\${ const n = 2; }\$`, `# a note`, `[main]`, `  [p]\${ n }\$[end]`, `[end]`].join("\r\n");
+		const html = await compile(src);
+		expect(html).toBe(`<main>\r\n  <p>2</p>\r\n</main>`);
+	});
+
 	it("keeps lines where a ${ }$ outputs something, or other content shares the line", async () => {
 		expect(await compile(`\${ 1 + 1 }\$\n[p]a[end]`)).toBe(`2\n<p>a</p>`);
 		expect(await compile(`x \${ const a = 1; }\$\n[p]a[end]`)).toBe(`x \n<p>a</p>`);

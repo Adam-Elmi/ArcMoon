@@ -1,0 +1,5 @@
+# ###################
+# The same line endings on every system: Windows checkouts keep \n, so test files match
+# ###################
+* text=auto eol=lf
+*.png binary

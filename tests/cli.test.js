@@ -96,7 +96,7 @@ describe("cli", () => {
 
 		await writeFile(join(site, "arcmoon.config.js"), `export default { externalScripts: true };`);
 		const r = await arcmoon("build", "pages/live.arcm", "-o", "out");
-		expect(r.stdout).toMatch(/js out\/assets\/live-[A-Z0-9]+\.js/);
+		expect(r.stdout).toMatch(/js out[\\/]assets[\\/]live-[A-Z0-9]+\.js/);
 		expect(await readFile(join(site, "out/live.html"), "utf8")).toMatch(/<script type="module" src="\.\/assets\/live-[A-Z0-9]+\.js"><\/script>/);
 	});
 
@@ -117,7 +117,7 @@ describe("cli", () => {
 
 		await writeFile(join(site, "arcmoon.config.js"), `export default { externalStyles: true };`);
 		const r = await arcmoon("build", "pages/styled.arcm", "-o", "out");
-		expect(r.stdout).toMatch(/css out\/assets\/styled-[A-Z0-9]+\.css/);
+		expect(r.stdout).toMatch(/css out[\\/]assets[\\/]styled-[A-Z0-9]+\.css/);
 		const page = await readFile(join(site, "out/styled.html"), "utf8");
 		const href = /<link rel="stylesheet" href="\.\/(assets\/styled-[A-Z0-9]+\.css)">/.exec(page)[1];
 		expect(await readFile(join(site, "out", href), "utf8")).toMatch(/background:url\("\.\/logo-[A-Z0-9]+\.png"\)/);
@@ -134,7 +134,7 @@ describe("cli", () => {
 	it("build writes files to -o", async () => {
 		await arcmoon("init");
 		const r = await arcmoon("build", "pages/index.arcm", "-o", "out");
-		expect(r.stdout).toContain("✓ pages/index.arcm → out/index.html");
+		expect(r.stdout).toMatch(/✓ pages\/index\.arcm → out[\\/]index\.html/);
 		expect(await readdir(join(site, "out"))).toEqual(["index.html"]);
 	});
 
