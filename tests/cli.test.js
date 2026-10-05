@@ -18,11 +18,15 @@ let dir;
 let site;
 
 // ###################
-// Run arcmoon; never throws, returns code and output
+// Run arcmoon; never throws, returns code and output. Plain text: no colors, even in CI
+// (picocolors turns them on when a CI variable is set)
 // ###################
+const PLAIN = { ...process.env, NO_COLOR: "1" };
+delete PLAIN.FORCE_COLOR;
+
 const arcmoon = async (...args) => {
 	try {
-		const { stdout, stderr } = await exec("node", [CLI, ...args], { cwd: site });
+		const { stdout, stderr } = await exec("node", [CLI, ...args], { cwd: site, env: PLAIN });
 		return { code: 0, stdout, stderr };
 	} catch (err) {
 		return { code: err.code, stdout: err.stdout, stderr: err.stderr };
