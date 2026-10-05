@@ -7,7 +7,7 @@
 <p align="center">
   <a href="https://www.npmjs.com/package/arcmoon"><img src="https://img.shields.io/npm/v/arcmoon/beta?color=d9263f&label=npm" alt="npm version"></a>
   <img src="https://img.shields.io/badge/license-MIT-3b82f6" alt="MIT license">
-  <img src="https://img.shields.io/badge/node-%3E%3D20.10-339933?logo=node.js&logoColor=white" alt="Node.js 20.10 or newer">
+  <img src="https://img.shields.io/badge/node-%3E%3D22.12-339933?logo=node.js&logoColor=white" alt="Node.js 22.12 or newer">
 </p>
 
 <p align="center">ArcMoon is a template language. You write <code>.arcm</code> files, and ArcMoon builds them into web pages.</p>
@@ -94,7 +94,7 @@ To use ArcMoon from JavaScript, install it in your project instead:
 npm install arcmoon
 ```
 
-ArcMoon needs Node.js 20.10 or newer.
+ArcMoon needs Node.js 22.12 or newer.
 
 ## License
 
