@@ -29,7 +29,7 @@
   "author": "Adam Elmi",
   "license": "MIT",
   "engines": {
-    "node": ">=20.10"
+    "node": ">=22.12"
   },
   "publishConfig": {
     "tag": "beta"
