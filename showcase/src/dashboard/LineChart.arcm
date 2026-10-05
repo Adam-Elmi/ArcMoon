@@ -1,0 +1,131 @@
+# ###################
+# A line chart, drawn at build time as SVG. Props: id, title, note, series
+# ([{ code, name, color, values: [number | null per year] }]), years ([first, last]), format.
+# For the browser: the marker line, one dot per series (positions for every year
+# in data-pos) and the plot area are shared refs; the page moves them
+# ###################
+${
+  const { id, title, note, series, years, format } = ArcMoon.props();
+  const W = 640, H = 280, L = 52, R = 16, T = 16, B = 32;
+  const count = years[1] - years[0] + 1;
+  const all = series.flatMap((s) => s.values).filter((v) => v != null);
+  const step = (span) => {
+    const raw = span / 4;
+    const mag = 10 ** Math.floor(Math.log10(raw));
+    return [1, 2, 2.5, 5, 10].map((m) => m * mag).find((s) => s >= raw);
+  };
+  const lowRaw = format === "years" ? Math.min(...all) : 0;
+  const gap = step(Math.max(...all) - lowRaw);
+  const low = Math.floor(lowRaw / gap) * gap;
+  const high = Math.ceil(Math.max(...all) / gap) * gap;
+  const x = (i) => L + (i / (count - 1)) * (W - L - R);
+  const y = (v) => T + (1 - (v - low) / (high - low)) * (H - T - B);
+  const fmt = (v) => format === "money" ? (v >= 1000 ? `$${v / 1000}k` : `$${v}`) : format === "percent" ? `${v}%` : `${v}`;
+  const grid = [];
+  for (let v = low; v <= high + 1e-9; v += gap) grid.push({ v, y: y(v).toFixed(1), label: fmt(Math.round(v * 10) / 10) });
+  const ticks = [];
+  for (let i = 0; i < count; i += 4) ticks.push({ x: x(i).toFixed(1), label: years[0] + i });
+  const lines = series.map((s) => {
+    let d = "";
+    let pen = false;
+    s.values.forEach((v, i) => {
+      if (v == null) return (pen = false);
+      d += `${pen ? "L" : "M"}${x(i).toFixed(1)} ${y(v).toFixed(1)}`;
+      pen = true;
+    });
+    const pos = s.values.map((v, i) => (v == null ? null : [Number(x(i).toFixed(1)), Number(y(v).toFixed(1))]));
+    return { ...s, d, pos: JSON.stringify(pos) };
+  });
+  const markers = JSON.stringify(Array.from({ length: count }, (_, i) => Number(x(i).toFixed(1))));
+}$
+
+[figure = class: "chart"]
+  [figcaption]
+    [span = class: "title"]${ title }$[end]
+    [span = class: "note"]${ note }$[end]
+  [end]
+  [svg = class: "plot", viewBox: ${ `0 0 ${W} ${H}` }$, role: "img", aria-label: ${ title }$, data-chart: ${ id }$, data-left: ${ L }$, data-right: ${ W - R }$, data-width: ${ W }$, data-first: ${ years[0] }$, data-count: ${ count }$, arcm-shared-ref: "plot"]
+    [for-each = ${ grid }$, as: "g"]
+      [line = class: "grid", x1: ${ L }$, x2: ${ W - R }$, y1: ${ g.y }$, y2: ${ g.y }$ !]
+      [text = class: "axis", x: ${ L - 8 }$, y: ${ g.y }$, text-anchor: "end", dominant-baseline: "middle"]${ g.label }$[end]
+    [end]
+    [for-each = ${ ticks }$, as: "t"]
+      [text = class: "axis", x: ${ t.x }$, y: ${ H - 10 }$, text-anchor: "middle"]${ t.label }$[end]
+    [end]
+    [line = class: "marker", x1: "0", x2: "0", y1: ${ T }$, y2: ${ H - B }$, data-chart: ${ id }$, data-xs: ${ markers }$, arcm-shared-ref: "marker" !]
+    [for-each = ${ lines }$, as: "s"]
+      [path = class: "line", d: ${ s.d }$, stroke: ${ s.color }$, data-code: ${ s.code }$, arcm-shared-ref: "line" !]
+    [end]
+    [for-each = ${ lines }$, as: "s"]
+      [circle = class: "dot", r: "4.5", cx: "0", cy: "0", fill: ${ s.color }$, data-code: ${ s.code }$, data-pos: ${ s.pos }$, arcm-shared-ref: "dot" !]
+    [end]
+  [end]
+[end]
+
+[style]
+  .chart {
+    margin: 0;
+    padding: 18px 18px 10px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+  }
+  figcaption {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 4px 12px;
+    margin-bottom: 8px;
+  }
+  .title {
+    font: 400 19px/1.2 var(--serif);
+  }
+  .note {
+    font: 11px var(--mono);
+    color: var(--faint);
+  }
+  .plot {
+    display: block;
+    width: 100%;
+    height: auto;
+    touch-action: pan-y;
+    cursor: crosshair;
+  }
+  .grid {
+    stroke: var(--line);
+    stroke-width: 1;
+  }
+  .axis {
+    font: 11px var(--mono);
+    fill: var(--faint);
+  }
+  .marker {
+    stroke: var(--line-strong);
+    stroke-width: 1;
+    stroke-dasharray: 3 3;
+  }
+  .line {
+    fill: none;
+    stroke-width: 2.2;
+    stroke-linejoin: round;
+    stroke-linecap: round;
+    transition: opacity 0.2s, stroke-width 0.2s;
+  }
+  .dot {
+    stroke: var(--surface);
+    stroke-width: 2;
+    transition: opacity 0.2s;
+  }
+  .line[data-off],
+  .dot[data-off] {
+    opacity: 0;
+  }
+  .line[data-dim],
+  .dot[data-dim] {
+    opacity: 0.35;
+  }
+  .line[data-focus] {
+    stroke-width: 3.4;
+  }
+[end]

@@ -1,0 +1,121 @@
+# ###################
+# Home: what the showcase is, and every project, built or coming
+# ###################
+[import = Showcase: "@/layouts/Showcase.arcm" !]
+[import = Tag: "@/components/Tag.arcm" !]
+
+${
+  import showcases from "../src/data/showcases.json";
+  const list = showcases.map((s, i) => ({ ...s, number: String(i + 1).padStart(2, "0") }));
+  const built = list.filter((s) => s.ready).length;
+}$
+
+[Showcase]
+  [section = class: "hero"]
+    [p = class: "eyebrow"]Showcase[end]
+    [h1]Real projects, written in ArcMoon.[end]
+    [p = class: "lede"]Each one is a small, complete app: games, tools and pages that use what ArcMoon can do, at build time and in the browser.[end]
+    [p = class: "count"]${ built }$ of ${ list.length }$ ready[end]
+  [end]
+
+  [ol = class: "grid"]
+    [for-each = ${ list }$, as: "show"]
+      [li = class: "cell"]
+        [a = class: "card", href: ${ show.ready ? `${show.slug}.html` : null }$, aria-disabled: ${ show.ready ? null : "true" }$]
+          [span = class: "num"]${ show.number }$[end]
+          [h2]${ show.title }$[end]
+          [p]${ show.summary }$[end]
+          [span = class: "tags"]
+            [for-each = ${ show.uses.slice(0, 4) }$, as: "use"][Tag]${ use }$[end][end]
+          [end]
+          [span = class: "go"]${ show.ready ? "Open →" : "Soon" }$[end]
+        [end]
+      [end]
+    [end]
+  [end]
+[end]
+
+[style]
+  .hero {
+    padding: clamp(48px, 9vw, 96px) var(--gutter) 40px;
+    border-bottom: 1px solid var(--line);
+  }
+  .hero h1 {
+    max-width: 16ch;
+    margin: 12px 0 16px;
+    font: 300 clamp(40px, 7vw, 72px)/1.02 var(--serif);
+    letter-spacing: -0.025em;
+  }
+  .lede {
+    max-width: 58ch;
+    margin: 0;
+    font-size: 17px;
+    color: var(--muted);
+  }
+  .count {
+    margin: 24px 0 0;
+    font: 13px var(--mono);
+    color: var(--faint);
+  }
+  .grid {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr));
+    clip-path: inset(0 1px 0 0);
+  }
+  .cell {
+    border-bottom: 1px solid var(--line);
+    border-right: 1px solid var(--line);
+  }
+  .card {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    height: 100%;
+    min-height: 230px;
+    padding: 28px var(--gutter) 24px;
+    text-decoration: none;
+    transition: background 0.15s;
+  }
+  .card:not([aria-disabled]):hover {
+    background: var(--surface);
+  }
+  .card[aria-disabled] {
+    color: var(--faint);
+  }
+  .num {
+    font: 12px var(--mono);
+    color: var(--faint);
+  }
+  .card h2 {
+    margin: 0;
+    font: 400 26px/1.15 var(--serif);
+    letter-spacing: -0.01em;
+  }
+  .card p {
+    margin: 0;
+    color: var(--muted);
+  }
+  .card[aria-disabled] p {
+    color: var(--faint);
+  }
+  .tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: auto;
+    padding-top: 8px;
+  }
+  .go {
+    font: 500 13px var(--sans);
+    color: var(--accent);
+  }
+  .card[aria-disabled] .go {
+    color: var(--faint);
+    font-family: var(--mono);
+    font-weight: 400;
+  }
+[end]

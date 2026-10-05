@@ -1,0 +1,21 @@
+# ###################
+# A keyboard key: [Key]Space[end]
+# ###################
+[kbd = class: "key"][slot!][end]
+
+[style]
+  .key {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 24px;
+    height: 24px;
+    padding: 0 6px;
+    font: 500 12px/1 var(--mono);
+    color: var(--ink);
+    background: var(--surface);
+    border: 1px solid var(--line-strong);
+    border-bottom-width: 2px;
+    border-radius: 5px;
+  }
+[end]

@@ -1,0 +1,19 @@
+# ###################
+# A small mono label: [Tag]signals[end]
+# ###################
+[span = class: "tag"][slot!][end]
+
+[style]
+  .tag {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: 11.5px;
+    line-height: 1;
+    padding: 5px 8px;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    color: var(--muted);
+    background: var(--surface);
+    white-space: nowrap;
+  }
+[end]

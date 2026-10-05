@@ -1,0 +1,46 @@
+# ###################
+# Arrow buttons for touch screens. Each button is a shared ref "pad" with
+# its direction in data-dir; the page finds them with ArcMoon.refs()
+# ###################
+${ const arrows = [["up", "M8 3 3 9h10Z"], ["left", "M3 8l6-5v10Z"], ["down", "M8 13 3 7h10Z"], ["right", "M13 8 7 3v10Z"]]; }$
+
+[div = class: "pad", role: "group", aria-label: "Direction buttons"]
+  [for-each = ${ arrows }$, as: "arrow"]
+    [button = class: "btn", type: "button", data-dir: ${ arrow[0] }$, arcm-shared-ref: "pad", aria-label: ${ arrow[0] }$]
+      [svg = viewBox: "0 0 16 16", aria-hidden: "true"][path = d: ${ arrow[1] }$, fill: "currentColor" !][end]
+    [end]
+  [end]
+[end]
+
+[style]
+  .pad {
+    display: grid;
+    grid-template-columns: repeat(3, 56px);
+    grid-template-rows: repeat(2, 48px);
+    gap: 6px;
+    justify-content: center;
+    grid-template-areas: ". up ." "left down right";
+  }
+  .btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--ink);
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    touch-action: manipulation;
+    cursor: pointer;
+  }
+  .btn:active {
+    background: var(--sunken);
+  }
+  .btn[data-dir="up"] { grid-area: up; }
+  .btn[data-dir="left"] { grid-area: left; }
+  .btn[data-dir="down"] { grid-area: down; }
+  .btn[data-dir="right"] { grid-area: right; }
+  .btn svg {
+    width: 14px;
+    height: 14px;
+  }
+[end]

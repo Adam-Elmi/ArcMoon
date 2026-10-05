@@ -35,6 +35,10 @@ describe("compile: markup", () => {
 		await expect(compile(`[import = Card: "./components/Card.arcm" !][Card = title: "T", "a b": "1" !]`)).rejects.toThrow(/"a b" on \[div\] is not a valid attribute name/);
 	});
 
+	it("keeps the body of a [template]", async () => {
+		expect(await compile(`[template = id: "row"][li = class: "item"][span]x[end][end][end]`)).toBe(`<template id="row"><li class="item"><span>x</span></li></template>`);
+	});
+
 	it("handles booleans, numbers and void elements", async () => {
 		const html = await compile(`[input = type: "checkbox", checked: true, disabled: false !][img = src: "a.png", width: 100 !]`);
 		expect(html).toBe(`<input type="checkbox" checked><img src="a.png" width="100">`);

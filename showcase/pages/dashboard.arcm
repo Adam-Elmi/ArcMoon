@@ -1,0 +1,350 @@
+# ###################
+# Data dashboard. Build time: ${ }$ fetches three World Bank series for 8 countries
+# (with a saved copy for offline builds), and LineChart / Bars components draw the
+# SVG. In the browser: a year (slider, Play, or hovering a chart), a legend that hides
+# and highlights countries, and number cards; signals, computed values and effects
+# move the drawn SVG
+# ###################
+[import = Showcase: "@/layouts/Showcase.arcm" !]
+[import = LineChart: "@/dashboard/LineChart.arcm" !]
+[import = Bars: "@/dashboard/Bars.arcm" !]
+[import = Stat: "@/components/Stat.arcm" !]
+
+${
+  import { readFileSync, writeFileSync } from "node:fs";
+
+  const FIRST = 2000;
+  const LAST = 2024;
+  const COUNTRIES = [
+    { code: "USA", name: "United States", color: "#1348dc" },
+    { code: "CHN", name: "China", color: "#c2391f" },
+    { code: "IND", name: "India", color: "#e07b12" },
+    { code: "BRA", name: "Brazil", color: "#0f7b47" },
+    { code: "NGA", name: "Nigeria", color: "#6f42c1" },
+    { code: "KEN", name: "Kenya", color: "#b8862a" },
+    { code: "DEU", name: "Germany", color: "#5c574a" },
+    { code: "JPN", name: "Japan", color: "#d63384" }
+  ];
+  const SERIES = { income: "NY.GDP.PCAP.CD", life: "SP.DYN.LE00.IN", online: "IT.NET.USER.ZS" };
+  const CACHE = new URL("../src/data/dashboard.cache.json", import.meta.url);
+  const codes = COUNTRIES.map((c) => c.code).join(";");
+
+  // ###################
+  // Fetch every series (year by year, one list per country); fall back to the saved copy
+  // ###################
+  let values;
+  let source = "fetched";
+  try {
+    const entries = await Promise.all(Object.entries(SERIES).map(async ([key, id]) => {
+      const url = `https://api.worldbank.org/v2/country/${codes}/indicator/${id}?format=json&date=${FIRST}:${LAST}&per_page=1000`;
+      const res = await fetch(url, { signal: AbortSignal.timeout(10000) });
+      if (!res.ok) throw new Error(`World Bank answered ${res.status}`);
+      const rows = (await res.json())[1];
+      const byCountry = {};
+      for (const c of COUNTRIES) byCountry[c.code] = Array(LAST - FIRST + 1).fill(null);
+      for (const row of rows) {
+        const v = row.value == null ? null : Math.round(row.value * 10) / 10;
+        byCountry[row.countryiso3code][Number(row.date) - FIRST] = v;
+      }
+      return [key, byCountry];
+    }));
+    values = Object.fromEntries(entries);
+    writeFileSync(CACHE, JSON.stringify(values));
+  } catch (err) {
+    try {
+      values = JSON.parse(readFileSync(CACHE, "utf8"));
+    } catch {
+      throw new Error(`can't fetch the data (${err.message}), and there is no saved copy yet`);
+    }
+    source = `the saved copy (${err.message})`;
+  }
+
+  export const data = { first: FIRST, last: LAST, countries: COUNTRIES, values };
+  const series = (key) => COUNTRIES.map((c) => ({ ...c, values: values[key][c.code] }));
+  const years = [FIRST, LAST];
+}$
+
+runtime ${
+  import { signal, computed, effect } from "arcmoon/reactive";
+
+  const { first, last, countries, values } = data;
+  const nameOf = new Map(countries.map((c) => [c.code, c.name]));
+  const money = new Intl.NumberFormat("en", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
+  const short = new Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 });
+
+  // ###################
+  // State
+  // ###################
+  const year = signal(last);
+  const hidden = signal(new Set());
+  const focus = signal("KEN");
+  const playing = signal(false);
+
+  // ###################
+  // Computed: the year's index, and the numbers for the cards
+  // ###################
+  const index = computed(() => year() - first);
+  const at = (key, code) => values[key][code][index()];
+  const income = computed(() => at("income", focus()));
+  const life = computed(() => at("life", focus()));
+  const online = computed(() => at("online", focus()));
+  const growth = computed(() => {
+    const start = values.income[focus()][0];
+    return income() && start ? income() / start : null;
+  });
+  const cards = computed(() => ({
+    income: income() == null ? "—" : money.format(income()),
+    life: life() == null ? "—" : `${life().toFixed(1)} yrs`,
+    online: online() == null ? "—" : `${Math.round(online())}%`,
+    growth: growth() == null ? "—" : `×${growth().toFixed(1)}`
+  }));
+  const heading = computed(() => `${nameOf.get(focus())} in ${year()}`);
+
+  // ###################
+  // Drawing: move the markers and dots, hide and dim lines, size and rank the bars
+  // ###################
+  const markers = ArcMoon.refs(ArcMoon.defineRef("marker")).map((el) => ({ el, xs: JSON.parse(el.dataset.xs) }));
+  const dots = ArcMoon.refs(ArcMoon.defineRef("dot")).map((el) => ({ el, code: el.dataset.code, pos: JSON.parse(el.dataset.pos) }));
+  const lines = ArcMoon.refs(ArcMoon.defineRef("line"));
+  const bars = ArcMoon.refs(ArcMoon.defineRef("bar")).map((el) => ({ el, code: el.dataset.code, fill: el.querySelector(".fill"), value: el.querySelector(".value") }));
+  const flag = (el, name, on) => el.toggleAttribute(name, Boolean(on));
+
+  effect(() => {
+    const i = index();
+    for (const m of markers) {
+      m.el.setAttribute("x1", m.xs[i]);
+      m.el.setAttribute("x2", m.xs[i]);
+    }
+    for (const d of dots) {
+      const p = d.pos[i];
+      flag(d.el, "data-off", !p || hidden().has(d.code));
+      flag(d.el, "data-dim", focus() !== d.code);
+      if (p) {
+        d.el.setAttribute("cx", p[0]);
+        d.el.setAttribute("cy", p[1]);
+      }
+    }
+  });
+
+  effect(() => {
+    for (const line of lines) {
+      const code = line.dataset.code;
+      flag(line, "data-off", hidden().has(code));
+      flag(line, "data-dim", focus() !== code);
+      flag(line, "data-focus", focus() === code);
+    }
+  });
+
+  effect(() => {
+    const shown = bars.filter((b) => !hidden().has(b.code));
+    const top = Math.max(1, ...shown.map((b) => at("income", b.code) ?? 0));
+    const ranked = [...shown].sort((a, b) => (at("income", b.code) ?? 0) - (at("income", a.code) ?? 0));
+    for (const b of bars) {
+      const v = at("income", b.code);
+      flag(b.el, "data-off", hidden().has(b.code));
+      flag(b.el, "data-dim", focus() !== b.code);
+      b.el.style.order = ranked.indexOf(b);
+      b.fill.style.width = `${v ? (v / top) * 100 : 0}%`;
+      b.value.textContent = v == null ? "—" : `$${short.format(v)}`;
+    }
+  });
+
+  // ###################
+  // Hovering a chart picks the year under the pointer
+  // ###################
+  for (const plot of ArcMoon.refs(ArcMoon.defineRef("plot"))) {
+    const left = Number(plot.dataset.left);
+    const right = Number(plot.dataset.right);
+    const width = Number(plot.dataset.width);
+    const count = Number(plot.dataset.count);
+    plot.addEventListener("pointermove", (event) => {
+      const box = plot.getBoundingClientRect();
+      const x = ((event.clientX - box.left) / box.width) * width;
+      const i = Math.round(((x - left) / (right - left)) * (count - 1));
+      playing(false);
+      year(first + Math.min(count - 1, Math.max(0, i)));
+    });
+  }
+
+  // ###################
+  // Play: one year every 0.45 s, starting over at the end
+  // ###################
+  let timer = null;
+  effect(() => {
+    clearInterval(timer);
+    if (!playing()) return;
+    if (year() === last) year(first);
+    timer = setInterval(() => (year() >= last ? playing(false) : year(year() + 1)), 450);
+  });
+
+  // ###################
+  // The legend: the dot shows or hides a country, the name puts it in focus
+  // ###################
+  for (const button of ArcMoon.refs(ArcMoon.defineRef("show"))) {
+    const code = button.dataset.code;
+    button.addEventListener("click", () => {
+      const next = new Set(hidden());
+      next.has(code) ? next.delete(code) : next.add(code);
+      if (next.size < countries.length) hidden(next);
+    });
+    effect(() => button.setAttribute("aria-pressed", String(!hidden().has(code))));
+  }
+  for (const button of ArcMoon.refs(ArcMoon.defineRef("focus"))) {
+    const code = button.dataset.code;
+    button.addEventListener("click", () => {
+      focus(code);
+      if (hidden().has(code)) {
+        const next = new Set(hidden());
+        next.delete(code);
+        hidden(next);
+      }
+    });
+    effect(() => button.toggleAttribute("data-focus", focus() === code));
+  }
+}$
+
+[Showcase = slug: "dashboard"]
+  [section = class: "db-guide"]
+    [p = class: "db-goal"]Drag the year, press Play, or move the pointer over a chart. Click a country's name to focus it, or its dot to hide it. Data: World Bank, ${ FIRST }$–${ LAST }$, ${ source === "fetched" ? "fetched when this page was built" : `from ${source}` }$.[end]
+  [end]
+
+  [section = class: "db-app"]
+    [div = class: "db-controls"]
+      [button = class: "db-play", type: "button", aria-label: "Play the years", aria-pressed: runtime ${ String(playing()) }$, onclick: runtime ${ () => playing(!playing()) }$]runtime ${ playing() ? "Pause" : "Play" }$[end]
+      [input = class: "db-year-range", type: "range", min: ${ FIRST }$, max: ${ LAST }$, step: "1", value: runtime ${ year() }$, aria-label: "Year", oninput: runtime ${ (event) => { playing(false); year(Number(event.target.value)); } }$ !]
+      [span = class: "db-year"]runtime ${ year() }$[end]
+    [end]
+
+    [div = class: "db-legend", role: "group", aria-label: "Countries"]
+      [for-each = ${ COUNTRIES }$, as: "c"]
+        [span = class: "db-key", --color: ${ c.color }$]
+          [button = class: "db-show", type: "button", data-code: ${ c.code }$, arcm-shared-ref: "show", aria-label: ${ `Show ${c.name}` }$ !]
+          [button = class: "db-name", type: "button", data-code: ${ c.code }$, arcm-shared-ref: "focus"]${ c.name }$[end]
+        [end]
+      [end]
+    [end]
+
+    [div = class: "db-cards"]
+      [p = class: "db-heading"]runtime ${ heading() }$[end]
+      [div = class: "db-stats"]
+        [Stat = label: "Income per person"]runtime ${ cards().income }$[end]
+        [Stat = label: "Life expectancy"]runtime ${ cards().life }$[end]
+        [Stat = label: "Online"]runtime ${ cards().online }$[end]
+        [Stat = label: "Income since 2000"]runtime ${ cards().growth }$[end]
+      [end]
+    [end]
+
+    [div = class: "db-grid"]
+      [LineChart = id: "income", title: "Income per person", note: "GDP per person, current US$", series: ${ series("income") }$, years: ${ years }$, format: "money" !]
+      [Bars = title: "Richest to poorest", note: "GDP per person in the chosen year", countries: ${ COUNTRIES }$ !]
+      [LineChart = id: "life", title: "Life expectancy", note: "years at birth", series: ${ series("life") }$, years: ${ years }$, format: "years" !]
+      [LineChart = id: "online", title: "People online", note: "% of the population using the internet", series: ${ series("online") }$, years: ${ years }$, format: "percent" !]
+    [end]
+  [end]
+[end]
+
+[style]
+  .db-guide {
+    padding: 20px var(--gutter);
+    border-bottom: 1px solid var(--line);
+    background: var(--surface);
+  }
+  .db-goal {
+    margin: 0;
+    max-width: 80ch;
+    color: var(--muted);
+  }
+  .db-app {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    padding: 24px var(--gutter) 48px;
+  }
+  .db-controls {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+  .db-play {
+    min-width: 84px;
+    height: 36px;
+    padding: 0 16px;
+    font: 500 14px var(--sans);
+    color: var(--on-accent);
+    background: var(--accent);
+    border: 1px solid var(--accent);
+    border-radius: 7px;
+    cursor: pointer;
+  }
+  .db-year-range {
+    flex: 1;
+    accent-color: var(--accent);
+  }
+  .db-year {
+    min-width: 72px;
+    font: 300 40px/1 var(--serif);
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+  }
+  .db-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .db-key {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    padding: 3px 4px 3px 8px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 99px;
+  }
+  .db-show {
+    width: 14px;
+    height: 14px;
+    padding: 0;
+    background: var(--color);
+    border: 2px solid var(--color);
+    border-radius: 50%;
+    cursor: pointer;
+  }
+  .db-show[aria-pressed="false"] {
+    background: transparent;
+  }
+  .db-name {
+    padding: 4px 8px;
+    font: 500 13px var(--sans);
+    color: var(--muted);
+    background: transparent;
+    border: 0;
+    border-radius: 99px;
+    cursor: pointer;
+  }
+  .db-name[data-focus] {
+    color: var(--ink);
+    background: var(--sunken);
+  }
+  .db-heading {
+    margin: 0 0 8px;
+    font: 400 22px/1.2 var(--serif);
+  }
+  .db-stats {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
+  }
+  .db-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px;
+  }
+  @media (max-width: 860px) {
+    .db-grid {
+      grid-template-columns: 1fr;
+    }
+    .db-stats {
+      grid-template-columns: repeat(2, 1fr);
+    }
+  }
+[end]

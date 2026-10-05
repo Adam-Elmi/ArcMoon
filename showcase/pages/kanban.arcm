@@ -1,0 +1,661 @@
+# ###################
+# Kanban board. Build time: columns, labels and starter cards come from a JSON
+# file, checked so every card points at a real column and label; [for-each] writes
+# the columns. In the browser: cards are a signal; filters, counts and limits are
+# computed; effects draw the cards (cloned from a [template]) and save them.
+# Drag and drop uses pointer events, so it works with a mouse and on touch screens
+# ###################
+[import = Showcase: "@/layouts/Showcase.arcm" !]
+[import = Column: "@/kanban/Column.arcm" !]
+[import = Key: "@/snake/Key.arcm" !]
+
+${
+  import board from "../src/data/kanban.json";
+
+  // ###################
+  // Check the board: a bad column or label stops the build, with every problem listed
+  // ###################
+  const columnIds = new Set(board.columns.map((c) => c.id));
+  const labelIds = new Set(board.labels.map((l) => l.id));
+  const problems = [];
+  if (columnIds.size !== board.columns.length) problems.push("two columns share an id");
+  board.cards.forEach((card, i) => {
+    if (!columnIds.has(card.column)) problems.push(`card ${i + 1} ("${card.title}") is in column "${card.column}", which doesn't exist`);
+    if (card.label && !labelIds.has(card.label)) problems.push(`card ${i + 1} ("${card.title}") has label "${card.label}", which doesn't exist`);
+  });
+  if (problems.length) throw new Error(`kanban.json: ${problems.join("; ")}`);
+
+  export const columns = board.columns;
+  export const labels = board.labels;
+  export const starter = board.cards.map((card, i) => ({ id: i + 1, title: card.title, notes: card.notes ?? "", col: card.column, label: card.label ?? "", due: card.due ?? "" }));
+}$
+
+runtime ${
+  import { signal, computed, effect } from "arcmoon/reactive";
+
+  const SAVE = "arcmoon-kanban";
+  const labelOf = new Map(labels.map((l) => [l.id, l]));
+  const columnIndex = new Map(columns.map((c, i) => [c.id, i]));
+  const load = () => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(SAVE));
+      if (Array.isArray(saved)) return saved.filter((c) => columnIndex.has(c.col));
+    } catch {}
+    return starter;
+  };
+
+  // ###################
+  // State
+  // ###################
+  const cards = signal(load());
+  const query = signal("");
+  const labelFilter = signal("");
+  const editing = signal(null);              // card id in the dialog
+  const target = signal(null);               // { col, index } while dragging
+  const dragging = signal(null);             // card id while dragging
+  let nextId = Math.max(0, ...cards().map((c) => c.id)) + 1;
+
+  // ###################
+  // Computed: cards per column, matches, counts and limits
+  // ###################
+  const inColumn = computed(() => {
+    const out = new Map(columns.map((c) => [c.id, []]));
+    for (const card of cards()) out.get(card.col).push(card);
+    return out;
+  });
+  const matches = computed(() => {
+    const words = query().trim().toLowerCase();
+    return (card) =>
+      (!labelFilter() || card.label === labelFilter()) &&
+      (!words || `${card.title} ${card.notes}`.toLowerCase().includes(words));
+  });
+  const over = computed(() => new Set(columns.filter((c) => c.limit && inColumn().get(c.id).length > c.limit).map((c) => c.id)));
+  const today = new Date().toISOString().slice(0, 10);
+  const summary = computed(() => {
+    const done = inColumn().get(columns.at(-1).id).length;
+    return `${cards().length} cards · ${done} done${over().size ? ` · ${over().size} column over its limit` : ""}`;
+  });
+
+  // ###################
+  // Changes
+  // ###################
+  const update = (id, change) => cards(cards().map((c) => (c.id === id ? { ...c, ...change } : c)));
+  const move = (id, col, index) => {
+    const card = cards().find((c) => c.id === id);
+    const rest = cards().filter((c) => c.id !== id);
+    const moved = { ...card, col };
+    const there = rest.filter((c) => c.col === col);
+    const before = there[index];
+    const at = before ? rest.indexOf(before) : there.length ? rest.indexOf(there.at(-1)) + 1 : rest.length;
+    rest.splice(at, 0, moved);
+    cards(rest);
+  };
+  const add = (col) => {
+    const card = { id: nextId++, title: "New card", notes: "", col, label: "", due: "" };
+    cards([...cards(), card]);
+    editing(card.id);
+  };
+  const remove = (id) => {
+    cards(cards().filter((c) => c.id !== id));
+    editing(null);
+  };
+
+  effect(() => {
+    const list = cards();
+    try { localStorage.setItem(SAVE, JSON.stringify(list)); } catch {}
+  });
+
+  // ###################
+  // Elements: column lists, counts and buttons come from the Column components
+  // ###################
+  const byCol = (els) => new Map(els.map((el) => [el.dataset.col, el]));
+  const lists = byCol(ArcMoon.refs(ArcMoon.defineRef("list")));
+  const counts = byCol(ArcMoon.refs(ArcMoon.defineRef("count")));
+  const sections = byCol(ArcMoon.refs(ArcMoon.defineRef("column")));
+  for (const button of ArcMoon.refs(ArcMoon.defineRef("add"))) button.addEventListener("click", () => add(button.dataset.col));
+  const template = ArcMoon.ref(ArcMoon.defineRef("card"));
+  const placeholder = document.createElement("li");
+  placeholder.className = "kb-placeholder";
+
+  effect(() => {
+    for (const [col, el] of counts) {
+      el.textContent = inColumn().get(col).length;
+      sections.get(col).toggleAttribute("data-over", over().has(col));
+      sections.get(col).toggleAttribute("data-target", target()?.col === col);
+    }
+  });
+
+  // ###################
+  // Drawing the cards: one element per card, kept by id, moved between lists
+  // ###################
+  const rows = new Map();
+  const make = (card) => {
+    const el = template.content.firstElementChild.cloneNode(true);
+    el.dataset.id = card.id;
+    startDrag(el, card.id);
+    el.addEventListener("keydown", (event) => keys(event, card.id, el));
+    return el;
+  };
+
+  effect(() => {
+    const keep = new Set(cards().map((c) => c.id));
+    for (const [id, el] of rows) if (!keep.has(id)) { el.remove(); rows.delete(id); }
+    const show = matches();
+    for (const [col, list] of inColumn()) {
+      const ol = lists.get(col);
+      list.forEach((card, i) => {
+        let el = rows.get(card.id);
+        if (!el) rows.set(card.id, (el = make(card)));
+        if (ol.children[i] !== el) ol.insertBefore(el, ol.children[i] ?? null);
+        el.hidden = !show(card);
+        el.toggleAttribute("data-dragging", dragging() === card.id);
+        el.querySelector(".kb-title").textContent = card.title;
+        const notes = el.querySelector(".kb-notes");
+        notes.textContent = card.notes;
+        notes.hidden = !card.notes;
+        const label = labelOf.get(card.label);
+        const chip = el.querySelector(".kb-label");
+        chip.hidden = !label;
+        chip.textContent = label?.name ?? "";
+        el.style.setProperty("--label", label?.color ?? "transparent");
+        const due = el.querySelector(".kb-due");
+        due.hidden = !card.due;
+        due.textContent = card.due ? new Date(`${card.due}T12:00`).toLocaleDateString("en", { month: "short", day: "numeric" }) : "";
+        due.toggleAttribute("data-late", Boolean(card.due) && card.due < today && card.col !== columns.at(-1).id);
+      });
+    }
+    // ###################
+    // The drop spot while dragging
+    // ###################
+    const spot = target();
+    if (!spot) placeholder.remove();
+    else {
+      const ol = lists.get(spot.col);
+      const others = [...ol.children].filter((el) => el !== placeholder && !el.hasAttribute("data-dragging"));
+      ol.insertBefore(placeholder, others[spot.index] ?? null);
+    }
+  });
+
+  // ###################
+  // Drag and drop with pointer events. A mouse drags the whole card; on a touch
+  // screen, the handle (so the page can still scroll)
+  // ###################
+  function startDrag(el, id) {
+    el.addEventListener("pointerdown", (down) => {
+      if (down.button !== 0 || down.target.closest("button, input, select, textarea")) return;
+      if (down.pointerType !== "mouse" && !down.target.closest(".kb-handle")) return;
+      let ghost = null;
+      const box = el.getBoundingClientRect();
+      const dx = down.clientX - box.left;
+      const dy = down.clientY - box.top;
+      el.setPointerCapture(down.pointerId);
+
+      // ###################
+      // Near the top or bottom of the window, the page scrolls so long columns can be reached
+      // ###################
+      let last = null;
+      let scrolling = 0;
+      const edgeScroll = () => {
+        if (!ghost || !last) return (scrolling = 0);
+        const edge = 70;
+        const speed = last.clientY > innerHeight - edge ? 14 : last.clientY < edge ? -14 : 0;
+        if (speed) {
+          scrollBy(0, speed);
+          place(last);
+        }
+        scrolling = requestAnimationFrame(edgeScroll);
+      };
+
+      const place = (event) => {
+        const under = document.elementFromPoint(event.clientX, event.clientY)?.closest("[data-col]");
+        if (!under) return target(null);
+        const col = under.dataset.col;
+        const others = [...lists.get(col).children].filter((c) => c !== placeholder && !c.hasAttribute("data-dragging") && !c.hidden);
+        const index = others.findIndex((c) => {
+          const r = c.getBoundingClientRect();
+          return event.clientY < r.top + r.height / 2;
+        });
+        const all = [...lists.get(col).children].filter((c) => c !== placeholder && !c.hasAttribute("data-dragging"));
+        const realIndex = index === -1 ? all.length : all.indexOf(others[index]);
+        if (target()?.col !== col || target()?.index !== realIndex) target({ col, index: realIndex });
+      };
+
+      const onMove = (event) => {
+        last = event;
+        if (!ghost) {
+          if (Math.hypot(event.clientX - down.clientX, event.clientY - down.clientY) < 5) return;
+          ghost = el.cloneNode(true);
+          ghost.classList.add("kb-ghost");
+          ghost.style.width = `${box.width}px`;
+          document.body.append(ghost);
+          dragging(id);
+          scrolling = requestAnimationFrame(edgeScroll);
+        }
+        ghost.style.transform = `translate(${event.clientX - dx}px, ${event.clientY - dy}px) rotate(2deg)`;
+        place(event);
+      };
+      const onUp = () => {
+        el.removeEventListener("pointermove", onMove);
+        el.removeEventListener("pointerup", onUp);
+        el.removeEventListener("pointercancel", onUp);
+        cancelAnimationFrame(scrolling);
+        if (ghost) {
+          ghost.remove();
+          ghost = null;
+          const spot = target();
+          target(null);
+          dragging(null);
+          if (spot) move(id, spot.col, spot.index);
+        } else {
+          editing(id);
+        }
+      };
+      el.addEventListener("pointermove", onMove);
+      el.addEventListener("pointerup", onUp);
+      el.addEventListener("pointercancel", onUp);
+    });
+  }
+
+  // ###################
+  // Keyboard: Enter opens; Alt + arrows move between columns and up or down
+  // ###################
+  function keys(event, id, el) {
+    const card = cards().find((c) => c.id === id);
+    const list = inColumn().get(card.col);
+    const at = list.findIndex((c) => c.id === id);
+    if (event.key === "Enter") return editing(id);
+    if (!event.altKey) return;
+    const step = { ArrowLeft: -1, ArrowRight: 1 }[event.key];
+    if (step) {
+      const next = columns[columnIndex.get(card.col) + step];
+      if (next) move(id, next.id, inColumn().get(next.id).length);
+    } else if (event.key === "ArrowUp" && at > 0) move(id, card.col, at - 1);
+    else if (event.key === "ArrowDown" && at < list.length - 1) move(id, card.col, at + 1);
+    else return;
+    event.preventDefault();
+    el.focus();
+  }
+
+  // ###################
+  // The card dialog: fields fill when it opens; every change saves at once
+  // ###################
+  const dialog = ArcMoon.ref(ArcMoon.defineRef("dialog"));
+  const fields = {
+    title: ArcMoon.ref(ArcMoon.defineRef("f-title")),
+    notes: ArcMoon.ref(ArcMoon.defineRef("f-notes")),
+    label: ArcMoon.ref(ArcMoon.defineRef("f-label")),
+    col: ArcMoon.ref(ArcMoon.defineRef("f-col")),
+    due: ArcMoon.ref(ArcMoon.defineRef("f-due"))
+  };
+  for (const [key, field] of Object.entries(fields)) {
+    field.addEventListener("input", () => editing() && update(editing(), { [key]: key === "title" ? field.value || "Untitled" : field.value }));
+  }
+  ArcMoon.ref(ArcMoon.defineRef("f-delete")).addEventListener("click", () => remove(editing()));
+  dialog.addEventListener("close", () => editing(null));
+
+  let filled = null;
+  effect(() => {
+    const id = editing();
+    if (id === null) {
+      filled = null;
+      if (dialog.open) dialog.close();
+      return;
+    }
+    const card = cards().find((c) => c.id === id);
+    if (!card) return editing(null);
+    if (filled !== id) {
+      filled = id;
+      for (const [key, field] of Object.entries(fields)) field.value = card[key] ?? "";
+      if (!dialog.open) dialog.showModal();
+      fields.title.focus();
+      fields.title.select();
+    }
+  });
+
+  for (const chip of ArcMoon.refs(ArcMoon.defineRef("label-filter"))) {
+    chip.addEventListener("click", () => labelFilter(labelFilter() === chip.dataset.label ? "" : chip.dataset.label));
+    effect(() => chip.setAttribute("aria-pressed", String(labelFilter() === chip.dataset.label)));
+  }
+}$
+
+[Showcase = slug: "kanban"]
+  [section = class: "kb-guide"]
+    [p = class: "kb-goal"]Drag cards between columns, or click one to edit it. "In progress" and "Review" have limits: a column turns red when it has too many cards.[end]
+    [dl = class: "kb-keys"]
+      [div][dt]Drag[end][dd]Move a card (on touch: the ⋮⋮ handle)[end][end]
+      [div][dt][Key]Enter[end][end][dd]Open a card[end][end]
+      [div][dt][Key]Alt[end] + [Key]←[end][Key]→[end][end][dd]Next or last column[end][end]
+      [div][dt][Key]Alt[end] + [Key]↑[end][Key]↓[end][end][dd]Up or down[end][end]
+    [end]
+  [end]
+
+  [section = class: "kb-app"]
+    [div = class: "kb-tools"]
+      [input = class: "kb-search", type: "search", placeholder: "Search cards", aria-label: "Search cards", oninput: runtime ${ (event) => query(event.target.value) }$ !]
+      [div = class: "kb-labels", role: "group", aria-label: "Label"]
+        [for-each = ${ board.labels }$, as: "label"]
+          [button = class: "kb-chip", type: "button", data-label: ${ label.id }$, arcm-shared-ref: "label-filter", --label: ${ label.color }$]${ label.name }$[end]
+        [end]
+      [end]
+      [p = class: "kb-summary"]runtime ${ summary() }$[end]
+    [end]
+
+    [div = class: "kb-board", --cols: ${ board.columns.length }$]
+      [for-each = ${ board.columns }$, as: "col"][Column = col: ${ col }$ !][end]
+    [end]
+  [end]
+
+  [template = arcm-ref: "card"]
+    [li = class: "kb-card", tabindex: "0"]
+      [span = class: "kb-handle", aria-hidden: "true"]⋮⋮[end]
+      [span = class: "kb-label"][end]
+      [p = class: "kb-title"][end]
+      [p = class: "kb-notes"][end]
+      [span = class: "kb-due"][end]
+    [end]
+  [end]
+
+  [dialog = class: "kb-dialog", arcm-ref: "dialog", aria-label: "Edit card"]
+    [form = method: "dialog", class: "kb-close-form"][button = class: "kb-close", aria-label: "Close"]×[end][end]
+    [label = class: "kb-field"]Title[input = arcm-ref: "f-title", type: "text" !][end]
+    [label = class: "kb-field"]Notes[textarea = arcm-ref: "f-notes", rows: "4"][end][end]
+    [div = class: "kb-row"]
+      [label = class: "kb-field"]Label
+        [select = arcm-ref: "f-label"]
+          [option = value: ""]None[end]
+          [for-each = ${ board.labels }$, as: "label"][option = value: ${ label.id }$]${ label.name }$[end][end]
+        [end]
+      [end]
+      [label = class: "kb-field"]Column
+        [select = arcm-ref: "f-col"]
+          [for-each = ${ board.columns }$, as: "col"][option = value: ${ col.id }$]${ col.title }$[end][end]
+        [end]
+      [end]
+      [label = class: "kb-field"]Due[input = arcm-ref: "f-due", type: "date" !][end]
+    [end]
+    [div = class: "kb-dialog-foot"]
+      [button = class: "kb-delete", type: "button", arcm-ref: "f-delete"]Delete card[end]
+      [form = method: "dialog"][button = class: "kb-done"]Done[end][end]
+    [end]
+  [end]
+[end]
+
+[style]
+  .kb-guide {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px 40px;
+    padding: 20px var(--gutter);
+    border-bottom: 1px solid var(--line);
+    background: var(--surface);
+  }
+  .kb-goal {
+    margin: 0;
+    max-width: 50ch;
+    color: var(--muted);
+  }
+  .kb-keys {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 26px;
+    margin: 0;
+    font-size: 13px;
+    color: var(--muted);
+  }
+  .kb-keys div {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .kb-keys dt {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    font: 500 12px var(--mono);
+    color: var(--ink);
+  }
+  .kb-keys dd {
+    margin: 0;
+  }
+  .kb-app {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    padding: 24px var(--gutter) 48px;
+  }
+  .kb-tools {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px 14px;
+  }
+  .kb-search {
+    flex: 0 1 260px;
+    height: 36px;
+    padding: 0 12px;
+    font: 14px var(--sans);
+    color: var(--ink);
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+  }
+  .kb-labels {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .kb-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 30px;
+    padding: 0 12px;
+    font: 500 13px/1 var(--sans);
+    color: var(--muted);
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 99px;
+    cursor: pointer;
+  }
+  .kb-chip::before {
+    content: "";
+    width: 8px;
+    height: 8px;
+    background: var(--label);
+    border-radius: 50%;
+  }
+  .kb-chip[aria-pressed="true"] {
+    color: var(--ink);
+    border-color: var(--label);
+    box-shadow: inset 0 0 0 1px var(--label);
+  }
+  .kb-summary {
+    margin: 0 0 0 auto;
+    font: 12px var(--mono);
+    color: var(--faint);
+  }
+  .kb-board {
+    display: grid;
+    grid-template-columns: repeat(var(--cols), minmax(220px, 1fr));
+    gap: 12px;
+    align-items: start;
+    overflow-x: auto;
+    padding-bottom: 4px;
+  }
+  .kb-card {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 12px 12px 12px 14px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-left: 3px solid var(--label);
+    border-radius: 8px;
+    cursor: grab;
+    user-select: none;
+    transition: box-shadow 0.15s, opacity 0.15s;
+  }
+  .kb-card:hover {
+    box-shadow: 0 2px 8px rgb(0 0 0 / 0.08);
+  }
+  .kb-card[hidden] {
+    display: none;
+  }
+  .kb-card[data-dragging] {
+    display: none;
+  }
+  .kb-ghost {
+    position: fixed;
+    top: 0;
+    left: 0;
+    z-index: 100;
+    pointer-events: none;
+    box-shadow: 0 12px 28px rgb(0 0 0 / 0.22);
+    cursor: grabbing;
+  }
+  .kb-placeholder {
+    height: 46px;
+    border: 2px dashed var(--accent);
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--accent) 8%, transparent);
+  }
+  .kb-handle {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    padding: 2px 4px;
+    font-size: 12px;
+    letter-spacing: -2px;
+    color: var(--faint);
+    touch-action: none;
+  }
+  .kb-label {
+    align-self: flex-start;
+    padding: 2px 8px;
+    font: 600 11px/1.4 var(--sans);
+    color: #fff;
+    background: var(--label);
+    border-radius: 99px;
+  }
+  .kb-title {
+    margin: 0;
+    padding-right: 18px;
+    font-size: 14px;
+    font-weight: 500;
+    line-height: 1.35;
+  }
+  .kb-notes {
+    margin: 0;
+    font-size: 12.5px;
+    line-height: 1.4;
+    color: var(--muted);
+  }
+  .kb-due {
+    align-self: flex-start;
+    font: 11px var(--mono);
+    color: var(--muted);
+  }
+  .kb-due::before {
+    content: "Due ";
+  }
+  .kb-due[data-late] {
+    color: var(--bad);
+  }
+  .kb-label[hidden],
+  .kb-notes[hidden],
+  .kb-due[hidden] {
+    display: none;
+  }
+  .kb-dialog {
+    width: min(92vw, 520px);
+    padding: 28px 24px 22px;
+    color: var(--ink);
+    background: var(--bg);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+  }
+  .kb-dialog::backdrop {
+    background: rgb(0 0 0 / 0.4);
+    backdrop-filter: blur(2px);
+  }
+  .kb-close-form {
+    position: absolute;
+    top: 14px;
+    right: 14px;
+    margin: 0;
+  }
+  .kb-close {
+    width: 30px;
+    height: 30px;
+    font-size: 18px;
+    line-height: 1;
+    color: var(--muted);
+    background: transparent;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    cursor: pointer;
+  }
+  .kb-field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-bottom: 14px;
+    font: 12px var(--mono);
+    color: var(--faint);
+  }
+  .kb-field input,
+  .kb-field textarea,
+  .kb-field select {
+    padding: 8px 10px;
+    font: 15px var(--sans);
+    color: var(--ink);
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 7px;
+  }
+  .kb-field textarea {
+    resize: vertical;
+  }
+  .kb-row {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+  }
+  .kb-dialog-foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding-top: 6px;
+  }
+  .kb-dialog-foot form {
+    margin: 0;
+  }
+  .kb-delete {
+    font: 500 13px var(--sans);
+    color: var(--bad);
+    background: transparent;
+    border: 0;
+    cursor: pointer;
+  }
+  .kb-done {
+    height: 36px;
+    padding: 0 18px;
+    font: 500 14px var(--sans);
+    color: var(--on-accent);
+    background: var(--accent);
+    border: 1px solid var(--accent);
+    border-radius: 7px;
+    cursor: pointer;
+  }
+  @media (max-width: 560px) {
+    .kb-row {
+      grid-template-columns: 1fr;
+    }
+    .kb-summary {
+      margin-left: 0;
+    }
+  }
+[end]

@@ -1,0 +1,551 @@
+# ###################
+# Spreadsheet. Build time: the starter sheet comes from a JSON file, and [for-each]
+# writes the grid. In the browser: every cell is a signal (what you typed) and a
+# computed (its value). A formula reads other cells' computed values, so a change
+# only recalculates the cells that depend on it; one effect per cell draws it
+# ###################
+[import = Showcase: "@/layouts/Showcase.arcm" !]
+[import = Key: "@/snake/Key.arcm" !]
+
+${
+  import sheet from "../src/data/sheet.json";
+  export const start = sheet;
+  const letters = Array.from({ length: sheet.cols }, (_, i) => String.fromCharCode(65 + i));
+  const grid = Array.from({ length: sheet.rows }, (_, r) => ({ row: r + 1, cells: letters.map((l) => `${l}${r + 1}`) }));
+}$
+
+runtime ${
+  import { signal, computed, effect } from "arcmoon/reactive";
+
+  const SAVE = "arcmoon-sheet";
+  const COLS = start.cols;
+  const ROWS = start.rows;
+  const NAMES = [];
+  for (let r = 1; r <= ROWS; r++) for (let c = 0; c < COLS; c++) NAMES.push(`${String.fromCharCode(65 + c)}${r}`);
+  const saved = (() => { try { return JSON.parse(localStorage.getItem(SAVE)); } catch { return null; } })();
+  const first = saved && typeof saved === "object" ? saved : start.cells;
+
+  // ###################
+  // Errors are values too, so they flow through formulas
+  // ###################
+  class Err {
+    constructor(code) { this.code = code; }
+  }
+  const fail = (code) => { throw new Err(code); };
+
+  // ###################
+  // Formulas: tokens, then a small recursive parser that builds a tree
+  // ###################
+  const tokenize = (text) => {
+    const out = [];
+    const re = /\s*(?:(\d+(?:\.\d+)?|\.\d+)|([A-Za-z]+\d+(?::[A-Za-z]+\d+)?)|([A-Za-z]+)(?=\()|(.))/y;
+    let m;
+    while (re.lastIndex < text.length && (m = re.exec(text))) {
+      if (m[1]) out.push({ t: "num", v: Number(m[1]) });
+      else if (m[2]) out.push({ t: m[2].includes(":") ? "range" : "ref", v: m[2].toUpperCase() });
+      else if (m[3]) out.push({ t: "fn", v: m[3].toUpperCase() });
+      else if (m[4] && m[4].trim()) out.push({ t: "op", v: m[4] });
+    }
+    return out;
+  };
+
+  const parse = (text) => {
+    const tokens = tokenize(text);
+    let i = 0;
+    const peek = () => tokens[i];
+    const take = (v) => (peek()?.v === v ? tokens[i++] : fail("#ERR"));
+    const expr = () => {
+      let node = term();
+      while (peek()?.v === "+" || peek()?.v === "-") node = { op: tokens[i++].v, a: node, b: term() };
+      return node;
+    };
+    const term = () => {
+      let node = power();
+      while (peek()?.v === "*" || peek()?.v === "/") node = { op: tokens[i++].v, a: node, b: power() };
+      return node;
+    };
+    const power = () => {
+      const node = unary();
+      return peek()?.v === "^" ? (i++, { op: "^", a: node, b: power() }) : node;
+    };
+    const unary = () => (peek()?.v === "-" ? (i++, { op: "neg", a: unary() }) : atom());
+    const atom = () => {
+      const tok = tokens[i++];
+      if (!tok) fail("#ERR");
+      if (tok.t === "num") return { num: tok.v };
+      if (tok.t === "ref") return { ref: tok.v };
+      if (tok.v === "(") {
+        const node = expr();
+        take(")");
+        return node;
+      }
+      if (tok.t === "fn") {
+        take("(");
+        const args = [];
+        if (peek()?.v !== ")") {
+          do args.push(peek()?.t === "range" ? { range: tokens[i++].v } : expr());
+          while (peek()?.v === "," && i++);
+        }
+        take(")");
+        return { fn: tok.v, args };
+      }
+      fail("#ERR");
+    };
+    const tree = expr();
+    if (i < tokens.length) fail("#ERR");
+    return tree;
+  };
+
+  const expand = (range) => {
+    const [a, b] = range.split(":");
+    const col = (n) => n.charCodeAt(0) - 65;
+    const row = (n) => Number(n.slice(1));
+    const out = [];
+    for (let r = Math.min(row(a), row(b)); r <= Math.max(row(a), row(b)); r++)
+      for (let c = Math.min(col(a), col(b)); c <= Math.max(col(a), col(b)); c++) out.push(`${String.fromCharCode(65 + c)}${r}`);
+    return out;
+  };
+
+  const refsIn = (node, out = new Set()) => {
+    if (!node) return out;
+    if (node.ref) out.add(node.ref);
+    if (node.range) expand(node.range).forEach((r) => out.add(r));
+    [node.a, node.b, ...(node.args ?? [])].forEach((n) => refsIn(n, out));
+    return out;
+  };
+
+  // ###################
+  // State: one signal per cell, holding the text you typed
+  // ###################
+  const raw = new Map(NAMES.map((n) => [n, signal(first[n] ?? "")]));
+  const selected = signal("A1");
+  let runs = 0;
+  const lastRuns = signal(0);
+
+  // ###################
+  // Parsed formulas (computed), and the cells caught in a loop: those
+  // never read each other, so a loop can't run forever
+  // ###################
+  const trees = new Map(NAMES.map((n) => [n, computed(() => {
+    const text = raw.get(n)();
+    if (!text.startsWith("=")) return null;
+    try { return { tree: parse(text.slice(1)) }; } catch { return { error: "#ERR" }; }
+  })]));
+  const looped = computed(() => {
+    const deps = new Map(NAMES.map((n) => [n, trees.get(n)()?.tree ? [...refsIn(trees.get(n)().tree)] : []]));
+    const bad = new Set();
+    const state = new Map();
+    const visit = (n, path) => {
+      if (state.get(n) === "done") return;
+      if (state.get(n) === "open") return path.slice(path.indexOf(n)).forEach((p) => bad.add(p));
+      state.set(n, "open");
+      for (const d of deps.get(n) ?? []) visit(d, [...path, n]);
+      state.set(n, "done");
+    };
+    NAMES.forEach((n) => visit(n, []));
+    return bad;
+  });
+
+  // ###################
+  // Values: each cell is a computed. Reading another cell's value inside it
+  // is what links them; ArcMoon's reactivity tracks the rest
+  // ###################
+  const values = new Map();
+  const num = (v) => (v instanceof Err ? fail(v.code) : v === "" ? 0 : typeof v === "number" ? v : fail("#VALUE"));
+  const read = (ref) => (values.has(ref) ? values.get(ref)() : fail("#REF"));
+  const list = (args) => args.flatMap((a) => (a.range ? expand(a.range).map(read).filter((v) => v !== "") : [run(a)])).map(num);
+  const FUNCTIONS = {
+    SUM: (xs) => xs.reduce((s, x) => s + x, 0),
+    AVG: (xs) => (xs.length ? xs.reduce((s, x) => s + x, 0) / xs.length : fail("#DIV/0")),
+    MIN: (xs) => Math.min(...xs),
+    MAX: (xs) => Math.max(...xs),
+    COUNT: (xs) => xs.length
+  };
+  const run = (node) => {
+    if ("num" in node) return node.num;
+    if (node.ref) return num(read(node.ref));
+    if (node.fn === "ROUND") {
+      const [x, places = { num: 0 }] = node.args;
+      const f = 10 ** num(run(places));
+      return Math.round(num(run(x)) * f) / f;
+    }
+    if (node.fn) return FUNCTIONS[node.fn] ? FUNCTIONS[node.fn](list(node.args)) : fail("#NAME");
+    const a = num(run(node.a));
+    if (node.op === "neg") return -a;
+    const b = num(run(node.b));
+    if (node.op === "/" && b === 0) fail("#DIV/0");
+    return { "+": a + b, "-": a - b, "*": a * b, "/": a / b, "^": a ** b }[node.op];
+  };
+
+  for (const n of NAMES) {
+    values.set(n, computed(() => {
+      runs++;
+      const text = raw.get(n)();
+      if (!text.startsWith("=")) {
+        const trimmed = text.trim();
+        return trimmed !== "" && Number.isFinite(Number(trimmed)) ? Number(trimmed) : text;
+      }
+      if (looped().has(n)) return new Err("#CYCLE");
+      const parsed = trees.get(n)();
+      if (parsed.error) return new Err(parsed.error);
+      try { return run(parsed.tree); } catch (err) { return err instanceof Err ? err : new Err("#ERR"); }
+    }));
+  }
+
+  // ###################
+  // Drawing: one effect per cell, so only changed cells are touched (and flash)
+  // ###################
+  const shown = (v) =>
+    v instanceof Err ? v.code
+    : typeof v === "number" ? (Number.isInteger(v) ? v.toLocaleString("en") : v.toLocaleString("en", { maximumFractionDigits: 4 }))
+    : v;
+  const cells = new Map(ArcMoon.refs(ArcMoon.defineRef("cell")).map((el) => [el.dataset.cell, el]));
+  let ready = false;
+  for (const [n, el] of cells) {
+    effect(() => {
+      const v = values.get(n)();
+      el.textContent = shown(v);
+      el.toggleAttribute("data-number", typeof v === "number");
+      el.toggleAttribute("data-error", v instanceof Err);
+      el.toggleAttribute("data-formula", raw.get(n)().startsWith("="));
+      if (ready) {
+        el.removeAttribute("data-flash");
+        void el.offsetWidth;
+        el.setAttribute("data-flash", "");
+      }
+    });
+  }
+  ready = true;
+
+  // ###################
+  // Selection: the cell, its row and column, and the cells its formula reads
+  // ###################
+  const precedents = computed(() => {
+    const parsed = trees.get(selected())();
+    return parsed?.tree ? refsIn(parsed.tree) : new Set();
+  });
+  effect(() => {
+    for (const [n, el] of cells) {
+      el.toggleAttribute("data-selected", n === selected());
+      el.toggleAttribute("data-source", precedents().has(n));
+    }
+  });
+  const heads = ArcMoon.refs(ArcMoon.defineRef("head"));
+  effect(() => {
+    const [, col, row] = /^([A-Z])(\d+)$/.exec(selected());
+    for (const h of heads) h.toggleAttribute("data-on", h.dataset.head === col || h.dataset.head === row);
+  });
+
+  // ###################
+  // Saving: an effect over every cell's text
+  // ###################
+  effect(() => {
+    const out = {};
+    for (const [n, s] of raw) if (s()) out[n] = s();
+    try { localStorage.setItem(SAVE, JSON.stringify(out)); } catch {}
+  });
+
+  // ###################
+  // Editing: the formula bar shows the selected cell; Enter saves and moves down
+  // ###################
+  const bar = ArcMoon.ref(ArcMoon.defineRef("bar"));
+  const box = ArcMoon.ref(ArcMoon.defineRef("grid"));
+  const valueText = computed(() => {
+    const v = values.get(selected())();
+    return v instanceof Err ? `${v.code} · ${{ "#CYCLE": "the formula refers to itself through other cells", "#REF": "a cell that doesn't exist", "#DIV/0": "division by zero", "#VALUE": "text used as a number", "#NAME": "unknown function", "#ERR": "the formula can't be read" }[v.code]}` : `= ${shown(v) === "" ? "empty" : shown(v)}`;
+  });
+  // ###################
+  // Read the signals first: an effect only re-runs for signals it actually read
+  // ###################
+  effect(() => {
+    const text = raw.get(selected())();
+    if (document.activeElement !== bar) bar.value = text;
+  });
+
+  // ###################
+  // The bar edits one cell: the one selected when it got focus. Saving goes
+  // there, once, even if the selection has moved on by the time focus leaves
+  // ###################
+  let editingCell = null;
+  bar.addEventListener("focus", () => { editingCell = selected(); });
+  const commit = () => {
+    const cell = editingCell ?? selected();
+    editingCell = null;
+    const text = bar.value;
+    if (raw.get(cell)() === text) return;
+    const before = runs;
+    raw.get(cell)(text);
+    lastRuns(runs - before);
+  };
+  const move = (dc, dr) => {
+    const [, col, row] = /^([A-Z])(\d+)$/.exec(selected());
+    const c = Math.min(COLS - 1, Math.max(0, col.charCodeAt(0) - 65 + dc));
+    const r = Math.min(ROWS, Math.max(1, Number(row) + dr));
+    selected(`${String.fromCharCode(65 + c)}${r}`);
+  };
+
+  bar.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" || event.key === "Tab") {
+      event.preventDefault();
+      commit();
+      event.key === "Tab" ? move(event.shiftKey ? -1 : 1, 0) : move(0, event.shiftKey ? -1 : 1);
+      box.focus();
+    } else if (event.key === "Escape") {
+      editingCell = null;
+      bar.value = raw.get(selected())();
+      box.focus();
+    }
+  });
+  bar.addEventListener("blur", () => editingCell && commit());
+
+  for (const [n, el] of cells) {
+    el.addEventListener("click", () => { selected(n); box.focus(); });
+    el.addEventListener("dblclick", () => { selected(n); bar.focus(); });
+  }
+  box.addEventListener("keydown", (event) => {
+    const step = { ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0], Enter: [0, 1], Tab: [event.shiftKey ? -1 : 1, 0] }[event.key];
+    if (step) {
+      event.preventDefault();
+      if (event.key === "Enter") return bar.focus();
+      return move(...step);
+    }
+    if (event.key === "Delete" || event.key === "Backspace") {
+      event.preventDefault();
+      bar.value = "";
+      editingCell = selected();
+      return commit();
+    }
+    if (event.key.length === 1 && !event.ctrlKey && !event.metaKey) {
+      event.preventDefault();
+      bar.value = event.key;
+      bar.focus();
+    }
+  });
+
+  const reset = () => {
+    const before = runs;
+    for (const [n, s] of raw) s(start.cells[n] ?? "");
+    lastRuns(runs - before);
+    bar.value = raw.get(selected())();
+  };
+}$
+
+[Showcase = slug: "sheet"]
+  [section = class: "sh-guide"]
+    [p = class: "sh-goal"]Click a cell and type. Start with = for a formula: [code]=B2*C2[end], [code]=SUM(D2:D5)[end], [code]=ROUND(AVG(C2:C5), 2)[end]. Functions: SUM, AVG, MIN, MAX, COUNT, ROUND.[end]
+    [dl = class: "sh-keys"]
+      [div][dt][Key]↑[end][Key]↓[end][Key]←[end][Key]→[end][end][dd]Move[end][end]
+      [div][dt][Key]Enter[end][end][dd]Edit, then save and go down[end][end]
+      [div][dt][Key]Tab[end][end][dd]Save and go right[end][end]
+      [div][dt][Key]Del[end][end][dd]Clear[end][end]
+    [end]
+  [end]
+
+  [section = class: "sh-app"]
+    [div = class: "sh-bar"]
+      [span = class: "sh-name"]runtime ${ selected() }$[end]
+      [input = class: "sh-input", arcm-ref: "bar", type: "text", spellcheck: "false", autocomplete: "off", aria-label: "Cell contents" !]
+      [span = class: "sh-value"]runtime ${ valueText() }$[end]
+    [end]
+
+    [div = class: "sh-wrap"]
+      [div = class: "sh-grid", arcm-ref: "grid", tabindex: "0", role: "grid", aria-label: "Spreadsheet", --cols: ${ sheet.cols }$]
+        [span = class: "sh-corner" !]
+        [for-each = ${ letters }$, as: "l"][span = class: "sh-head", data-head: ${ l }$, arcm-shared-ref: "head"]${ l }$[end][end]
+        [for-each = ${ grid }$, as: "line"]
+          [span = class: "sh-head sh-rowhead", data-head: ${ String(line.row) }$, arcm-shared-ref: "head"]${ line.row }$[end]
+          [for-each = ${ line.cells }$, as: "name"][span = class: "sh-cell", data-cell: ${ name }$, arcm-shared-ref: "cell", role: "gridcell"]${ sheet.cells[name] && !sheet.cells[name].startsWith("=") ? sheet.cells[name] : "" }$[end][end]
+        [end]
+      [end]
+    [end]
+
+    [div = class: "sh-foot"]
+      [span]Last change recalculated [strong]runtime ${ lastRuns() }$[end] of ${ sheet.cols * sheet.rows }$ cells[end]
+      [button = class: "sh-reset", type: "button", onclick: runtime ${ () => reset() }$]Reset the sheet[end]
+    [end]
+  [end]
+[end]
+
+[style]
+  .sh-guide {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px 40px;
+    padding: 20px var(--gutter);
+    border-bottom: 1px solid var(--line);
+    background: var(--surface);
+  }
+  .sh-goal {
+    margin: 0;
+    max-width: 62ch;
+    color: var(--muted);
+  }
+  .sh-goal code {
+    font: 13px var(--mono);
+    color: var(--ink);
+  }
+  .sh-keys {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 26px;
+    margin: 0;
+    font-size: 13px;
+    color: var(--muted);
+  }
+  .sh-keys div {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .sh-keys dt {
+    display: flex;
+    gap: 3px;
+  }
+  .sh-keys dd {
+    margin: 0;
+  }
+  .sh-app {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 24px var(--gutter) 48px;
+  }
+  .sh-bar {
+    display: grid;
+    grid-template-columns: 56px 1fr auto;
+    align-items: center;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  .sh-name {
+    padding: 0 12px;
+    font: 600 13px var(--mono);
+    color: var(--accent);
+    border-right: 1px solid var(--line);
+    line-height: 40px;
+  }
+  .sh-input {
+    min-width: 0;
+    height: 40px;
+    padding: 0 12px;
+    font: 15px var(--mono);
+    color: var(--ink);
+    background: transparent;
+    border: 0;
+    outline: 0;
+  }
+  .sh-value {
+    max-width: 44ch;
+    padding: 0 14px;
+    overflow: hidden;
+    font: 12px var(--mono);
+    color: var(--faint);
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+  .sh-wrap {
+    overflow-x: auto;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+  }
+  .sh-grid {
+    display: grid;
+    grid-template-columns: 44px repeat(var(--cols), minmax(110px, 1fr));
+    min-width: calc(44px + var(--cols) * 110px);
+    font-size: 14px;
+    outline: 0;
+  }
+  .sh-corner,
+  .sh-head {
+    position: sticky;
+    top: 0;
+    padding: 6px 8px;
+    font: 11px var(--mono);
+    color: var(--faint);
+    text-align: center;
+    background: var(--sunken);
+    border-right: 1px solid var(--line);
+    border-bottom: 1px solid var(--line);
+  }
+  .sh-head {
+    z-index: 1;
+  }
+  .sh-rowhead {
+    position: sticky;
+    left: 0;
+    z-index: 2;
+    text-align: right;
+  }
+  .sh-corner {
+    left: 0;
+    z-index: 3;
+  }
+  .sh-head[data-on] {
+    color: var(--accent);
+    background: var(--accent-soft);
+  }
+  .sh-cell {
+    min-height: 34px;
+    padding: 7px 10px;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    background: var(--surface);
+    border-right: 1px solid var(--line);
+    border-bottom: 1px solid var(--line);
+    cursor: cell;
+  }
+  .sh-cell[data-number] {
+    font-family: var(--mono);
+    font-size: 13px;
+    text-align: right;
+  }
+  .sh-cell[data-formula] {
+    color: var(--accent);
+  }
+  .sh-cell[data-error] {
+    font: 600 12px var(--mono);
+    color: var(--bad);
+  }
+  .sh-cell[data-source] {
+    background: var(--accent-soft);
+  }
+  .sh-cell[data-selected] {
+    box-shadow: inset 0 0 0 2px var(--accent);
+  }
+  .sh-cell[data-flash] {
+    animation: sh-flash 0.9s ease-out;
+  }
+  @keyframes sh-flash {
+    from { background: color-mix(in srgb, #f5c542 55%, var(--surface)); }
+  }
+  .sh-foot {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    font: 12px var(--mono);
+    color: var(--muted);
+  }
+  .sh-foot strong {
+    color: var(--ink);
+  }
+  .sh-reset {
+    font: 500 13px var(--sans);
+    color: var(--muted);
+    background: transparent;
+    border: 1px solid var(--line);
+    border-radius: 7px;
+    padding: 6px 12px;
+    cursor: pointer;
+  }
+  .sh-reset:hover {
+    color: var(--ink);
+    border-color: var(--line-strong);
+  }
+[end]

@@ -1,0 +1,445 @@
+# ###################
+# Country explorer. Build time: ${ }$ fetches every country (world-countries on
+# jsDelivr) and its population (World Bank), merges them, keeps a copy with
+# node:fs for offline builds, and writes all 250 cards with [for-each].
+# The page works without JavaScript. In the browser: search, region filters,
+# sorting and a details dialog, all from signals, computed values and effects
+# ###################
+[import = Showcase: "@/layouts/Showcase.arcm" !]
+[import = Country: "@/countries/Country.arcm" !]
+
+${
+  import { readFileSync, writeFileSync } from "node:fs";
+
+  const COUNTRIES = "https://cdn.jsdelivr.net/npm/world-countries@5/countries.json";
+  const PEOPLE = "https://api.worldbank.org/v2/country/all/indicator/SP.POP.TOTL?format=json&mrnev=1&per_page=400";
+  const CACHE = new URL("../src/data/countries.cache.json", import.meta.url);
+  const getJson = async (url) => {
+    const res = await fetch(url, { signal: AbortSignal.timeout(10000) });
+    if (!res.ok) throw new Error(`${url} answered ${res.status}`);
+    return res.json();
+  };
+
+  // ###################
+  // Fetch and merge; on a network problem, use the copy from the last good build
+  // ###################
+  let countries;
+  let source = "fetched";
+  try {
+    const [raw, people] = await Promise.all([getJson(COUNTRIES), getJson(PEOPLE)]);
+    const population = new Map(people[1].map((row) => [row.countryiso3code, row.value]));
+    countries = raw.map((c) => ({
+      cca3: c.cca3,
+      cca2: c.cca2.toLowerCase(),
+      name: c.name.common,
+      official: c.name.official,
+      capital: (c.capital ?? []).join(", "),
+      region: c.region,
+      subregion: c.subregion ?? "",
+      population: population.get(c.cca3) ?? null,
+      area: c.area,
+      languages: Object.values(c.languages ?? {}),
+      currencies: Object.values(c.currencies ?? {}).map((x) => (x.symbol ? `${x.name} (${x.symbol})` : x.name)),
+      borders: c.borders ?? [],
+      landlocked: c.landlocked,
+      un: c.unMember,
+      latlng: c.latlng
+    }));
+    writeFileSync(CACHE, JSON.stringify(countries));
+  } catch (err) {
+    try {
+      countries = JSON.parse(readFileSync(CACHE, "utf8"));
+    } catch {
+      throw new Error(`can't fetch the data (${err.message}), and there is no saved copy yet`);
+    }
+    source = `from the saved copy (${err.message})`;
+  }
+
+  // ###################
+  // Build-time numbers: totals, records, and text for every card
+  // ###################
+  const plain = new Intl.NumberFormat("en");
+  const short = new Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 });
+  const names = new Map(countries.map((c) => [c.cca3, c.name]));
+  const maxPeople = Math.max(...countries.map((c) => c.population ?? 0));
+  const byName = [...countries].sort((a, b) => a.name.localeCompare(b.name)).map((c) => ({
+    ...c,
+    populationText: c.population ? short.format(c.population) : "—",
+    neighbors: c.borders.map((code) => ({ code, name: names.get(code) ?? code })),
+    search: [c.name, c.official, c.capital, c.subregion].join(" ").toLowerCase()
+  }));
+  const share = (c) => (c.population ? Math.max(1, Math.round(Math.sqrt(c.population / maxPeople) * 100)) : 0);
+  const cards = byName.map((c) => ({ c, share: share(c) }));
+
+  const total = byName.reduce((sum, c) => sum + (c.population ?? 0), 0);
+  const most = byName.reduce((a, b) => ((b.population ?? 0) > (a.population ?? 0) ? b : a));
+  const largest = byName.reduce((a, b) => (b.area > a.area ? b : a));
+  const regions = ["All", ...[...new Set(byName.map((c) => c.region))].sort()];
+  const regionCount = (r) => (r === "All" ? byName.length : byName.filter((c) => c.region === r).length);
+  const facts = [
+    ["Countries", plain.format(byName.length)],
+    ["People", `${(total / 1e9).toFixed(2)} billion`],
+    ["Most people", most.name],
+    ["Largest", largest.name]
+  ];
+  const builtOn = new Date().toISOString().slice(0, 10);
+}$
+
+runtime ${
+  import { signal, computed, effect } from "arcmoon/reactive";
+
+  // ###################
+  // The cards are already on the page; read them once
+  // ###################
+  const cards = ArcMoon.refs(ArcMoon.defineRef("card")).map((el) => ({
+    el,
+    code: el.dataset.code,
+    name: el.dataset.name,
+    region: el.dataset.region,
+    pop: Number(el.dataset.pop),
+    area: Number(el.dataset.area),
+    info: JSON.parse(el.dataset.info)
+  }));
+  const byCode = new Map(cards.map((card) => [card.code, card]));
+  const total = cards.length;
+
+  // ###################
+  // State and what follows from it
+  // ###################
+  const query = signal("");
+  const region = signal("All");
+  const sort = signal("name");
+  const open = signal(location.hash.slice(1) || null);
+
+  const shown = computed(() => {
+    const words = query().trim().toLowerCase();
+    const list = cards.filter((c) => (region() === "All" || c.region === region()) && (!words || c.name.includes(words)));
+    if (sort() === "people") list.sort((a, b) => b.pop - a.pop);
+    if (sort() === "area") list.sort((a, b) => b.area - a.area);
+    return list;
+  });
+  const countText = computed(() => (shown().length === total ? `All ${total} countries` : `${shown().length} of ${total} countries`));
+  const current = computed(() => byCode.get(open()) ?? null);
+
+  // ###################
+  // Showing, hiding and ordering the cards: CSS order, no nodes moved
+  // ###################
+  effect(() => {
+    const order = new Map(shown().map((c, i) => [c, i]));
+    for (const card of cards) {
+      const i = order.get(card);
+      card.el.hidden = i === undefined;
+      card.el.style.order = i ?? "";
+    }
+  });
+
+  // ###################
+  // The tools need JavaScript, so they appear only now
+  // ###################
+  ArcMoon.ref(ArcMoon.defineRef("tools")).hidden = false;
+  for (const chip of ArcMoon.refs(ArcMoon.defineRef("region"))) {
+    chip.addEventListener("click", () => region(chip.dataset.region));
+    effect(() => chip.setAttribute("aria-pressed", String(region() === chip.dataset.region)));
+  }
+
+  // ###################
+  // Details: a <dialog>, opened from the URL hash (#SOM), so a country has its own link
+  // ###################
+  const dialog = ArcMoon.ref(ArcMoon.defineRef("details"));
+  const body = ArcMoon.ref(ArcMoon.defineRef("body"));
+  const plain = new Intl.NumberFormat("en");
+  const esc = (s) => String(s).replace(/[&<>"]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[ch]);
+  const row = (label, value) => (value ? `<div><dt>${label}</dt><dd>${value}</dd></div>` : "");
+
+  effect(() => {
+    const card = current();
+    if (!card) {
+      if (dialog.open) dialog.close();
+      return;
+    }
+    const c = card.info;
+    const [lat, lng] = c.latlng ?? [];
+    body.innerHTML = `
+      <img class="cx-big-flag" src="https://flagcdn.com/${c.cca2}.svg" alt="Flag of ${esc(c.name)}" width="96" height="64">
+      <h2>${esc(c.name)}</h2>
+      <p class="cx-official">${esc(c.official)}</p>
+      <dl class="cx-facts">
+        ${row("Capital", esc(c.capital))}
+        ${row("Region", esc([c.subregion, c.region].filter(Boolean).join(", ")))}
+        ${row("People", c.population ? plain.format(c.population) : "No data")}
+        ${row("Area", `${plain.format(c.area)} km²`)}
+        ${row("Languages", esc(c.languages.join(", ")))}
+        ${row("Money", esc(c.currencies.join(", ")))}
+        ${row("Sea", c.landlocked ? "Landlocked" : "Has a coast")}
+        ${row("UN member", c.un ? "Yes" : "No")}
+      </dl>
+      ${c.neighbors.length ? `<p class="eyebrow">Neighbors</p><p class="cx-neighbors">${c.neighbors.map((n) => `<a href="#${n.code}">${esc(n.name)}</a>`).join("")}</p>` : `<p class="cx-island">No land borders.</p>`}
+      ${lat != null ? `<a class="cx-map" href="https://www.openstreetmap.org/?mlat=${lat}&mlon=${lng}#map=5/${lat}/${lng}" target="_blank" rel="noopener">Open on a map ↗</a>` : ""}`;
+    if (!dialog.open) dialog.showModal();
+    dialog.scrollTop = 0;
+  });
+
+  addEventListener("hashchange", () => open(location.hash.slice(1) || null));
+  dialog.addEventListener("close", () => {
+    if (location.hash) history.replaceState(null, "", location.pathname + location.search);
+    open(null);
+  });
+}$
+
+[Showcase = slug: "countries"]
+  [section = class: "cx-guide"]
+    [p = class: "cx-goal"]All ${ byName.length }$ countries were fetched and written into this page when it was built, ${ source === "fetched" ? `on ${builtOn}` : source }$. Turn JavaScript off: they are all still here. Search, filters and details add JavaScript on top.[end]
+    [dl = class: "cx-facts-strip"]
+      [for-each = ${ facts }$, as: "fact"][div][dt]${ fact[0] }$[end][dd]${ fact[1] }$[end][end][end]
+    [end]
+  [end]
+
+  [section = class: "cx-app"]
+    [div = class: "cx-tools", arcm-ref: "tools", hidden: true]
+      [input = class: "cx-search", type: "search", placeholder: "Search by name or capital", aria-label: "Search countries", oninput: runtime ${ (event) => query(event.target.value) }$ !]
+      [div = class: "cx-chips", role: "group", aria-label: "Region"]
+        [for-each = ${ regions }$, as: "r"]
+          [button = class: "cx-chip", type: "button", data-region: ${ r }$, arcm-shared-ref: "region"]${ r }$ [span]${ regionCount(r) }$[end][end]
+        [end]
+      [end]
+      [label = class: "cx-sort"]
+        Sort
+        [select = onchange: runtime ${ (event) => sort(event.target.value) }$]
+          [option = value: "name"]Name[end]
+          [option = value: "people"]Most people[end]
+          [option = value: "area"]Largest[end]
+        [end]
+      [end]
+    [end]
+    [p = class: "cx-count"]runtime ${ countText() }$[end]
+
+    [div = class: "cx-grid"]
+      [for-each = ${ cards }$, as: "item"][Country = c: ${ item.c }$, share: ${ item.share }$, arcm-shared-ref: "card" !][end]
+    [end]
+    [p = class: "cx-none", hidden: runtime ${ shown().length > 0 }$]No country matches. Try fewer letters, or another region.[end]
+  [end]
+
+  [dialog = class: "cx-dialog", arcm-ref: "details"]
+    [form = method: "dialog", class: "cx-close-form"][button = class: "cx-close", aria-label: "Close"]×[end][end]
+    [div = class: "cx-body", arcm-ref: "body"][end]
+  [end]
+[end]
+
+[style]
+  .cx-guide {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px 40px;
+    padding: 20px var(--gutter);
+    border-bottom: 1px solid var(--line);
+    background: var(--surface);
+  }
+  .cx-goal {
+    margin: 0;
+    max-width: 58ch;
+    color: var(--muted);
+  }
+  .cx-facts-strip {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px 28px;
+    margin: 0;
+  }
+  .cx-facts-strip dt {
+    font: 11px var(--mono);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--faint);
+  }
+  .cx-facts-strip dd {
+    margin: 2px 0 0;
+    font: 400 18px/1.2 var(--serif);
+  }
+  .cx-app {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    padding: 24px var(--gutter) 48px;
+  }
+  .cx-tools {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px 14px;
+  }
+  .cx-tools[hidden] {
+    display: none;
+  }
+  .cx-search {
+    flex: 1 1 240px;
+    height: 38px;
+    padding: 0 12px;
+    font: 15px var(--sans);
+    color: var(--ink);
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+  }
+  .cx-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .cx-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 32px;
+    padding: 0 12px;
+    font: 500 13px/1 var(--sans);
+    color: var(--muted);
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 99px;
+    cursor: pointer;
+  }
+  .cx-chip span {
+    font: 11px var(--mono);
+    color: var(--faint);
+  }
+  .cx-chip[aria-pressed="true"] {
+    color: var(--on-accent);
+    background: var(--accent);
+    border-color: var(--accent);
+  }
+  .cx-chip[aria-pressed="true"] span {
+    color: inherit;
+    opacity: 0.8;
+  }
+  .cx-sort {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    color: var(--muted);
+  }
+  .cx-sort select {
+    height: 32px;
+    padding: 0 8px;
+    font: 13px var(--sans);
+    color: var(--ink);
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 7px;
+  }
+  .cx-count {
+    margin: 0;
+    font: 12px var(--mono);
+    color: var(--faint);
+  }
+  .cx-count:empty {
+    display: none;
+  }
+  .cx-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 12px;
+  }
+  .cx-grid > [hidden] {
+    display: none;
+  }
+  .cx-none[hidden] {
+    display: none;
+  }
+  .cx-none {
+    margin: 24px 0;
+    text-align: center;
+    color: var(--faint);
+  }
+  .cx-dialog {
+    width: min(92vw, 520px);
+    max-height: 86vh;
+    padding: 28px 24px 24px;
+    color: var(--ink);
+    background: var(--bg);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+  }
+  .cx-dialog::backdrop {
+    background: rgb(0 0 0 / 0.4);
+    backdrop-filter: blur(2px);
+  }
+  .cx-close-form {
+    position: absolute;
+    top: 14px;
+    right: 14px;
+    margin: 0;
+  }
+  .cx-close {
+    width: 30px;
+    height: 30px;
+    font-size: 18px;
+    line-height: 1;
+    color: var(--muted);
+    background: transparent;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    cursor: pointer;
+  }
+  .cx-body h2 {
+    margin: 10px 0 2px;
+    font: 400 30px/1.15 var(--serif);
+  }
+  .cx-big-flag {
+    width: 96px;
+    height: 64px;
+    object-fit: cover;
+    border-radius: 4px;
+    box-shadow: 0 0 0 1px var(--line);
+  }
+  .cx-official {
+    margin: 0 0 16px;
+    color: var(--muted);
+  }
+  .cx-facts {
+    display: grid;
+    gap: 8px;
+    margin: 0 0 18px;
+  }
+  .cx-facts div {
+    display: grid;
+    grid-template-columns: 110px 1fr;
+    gap: 12px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--line);
+  }
+  .cx-facts dt {
+    font: 12px var(--mono);
+    color: var(--faint);
+  }
+  .cx-facts dd {
+    margin: 0;
+  }
+  .cx-neighbors {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin: 8px 0 18px;
+  }
+  .cx-neighbors a {
+    padding: 4px 10px;
+    font-size: 13px;
+    text-decoration: none;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 99px;
+  }
+  .cx-neighbors a:hover {
+    border-color: var(--accent);
+  }
+  .cx-island {
+    color: var(--muted);
+  }
+  .cx-map {
+    font-weight: 500;
+    color: var(--accent);
+    text-decoration: none;
+  }
+[end]

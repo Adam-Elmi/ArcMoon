@@ -1,4 +1,0 @@
-*, *::before, *::after { box-sizing: border-box; }
-body, h1, h2, h3, p, ul, pre { margin: 0; }
-img, svg { display: block; max-width: 100%; }
-button { font: inherit; }

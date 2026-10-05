@@ -1,0 +1,7 @@
+[
+	{ "text": "Read how signals work in ArcMoon", "done": true },
+	{ "text": "Build a page with a [for-each] list", "done": true },
+	{ "text": "Double-click a todo to edit it", "done": false },
+	{ "text": "Try the Active and Done filters", "done": false },
+	{ "text": "Delete one, then press Undo", "done": false }
+]

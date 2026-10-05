@@ -1,0 +1,25 @@
+{
+	"columns": [
+		{ "id": "backlog", "title": "Backlog" },
+		{ "id": "doing", "title": "In progress", "limit": 3 },
+		{ "id": "review", "title": "Review", "limit": 2 },
+		{ "id": "done", "title": "Done" }
+	],
+	"labels": [
+		{ "id": "feature", "name": "Feature", "color": "#1348dc" },
+		{ "id": "bug", "name": "Bug", "color": "#c2391f" },
+		{ "id": "docs", "name": "Docs", "color": "#0f7b47" },
+		{ "id": "idea", "name": "Idea", "color": "#b8862a" }
+	],
+	"cards": [
+		{ "title": "Live [for-each] with keys", "column": "backlog", "label": "feature", "notes": "Lists that update in the browser without a <template>." },
+		{ "title": "Readable runtime errors in dev", "column": "backlog", "label": "feature", "notes": "No minified names like \"o is not a function\"." },
+		{ "title": "Docs site", "column": "backlog", "label": "docs" },
+		{ "title": "Page styles reach components", "column": "doing", "label": "bug", "notes": "A page's .bar styled the layout's header." },
+		{ "title": "Clean dist/ on build", "column": "doing", "label": "bug" },
+		{ "title": "Spreadsheet showcase", "column": "review", "label": "idea", "due": "2026-10-20" },
+		{ "title": "[template] keeps its body", "column": "done", "label": "bug" },
+		{ "title": "Nested template literals in ${ }$", "column": "done", "label": "bug" },
+		{ "title": "Country explorer", "column": "done", "label": "feature" }
+	]
+}

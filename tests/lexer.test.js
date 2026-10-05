@@ -78,4 +78,13 @@ describe("lexer", () => {
 		expect(() => lexer("${ oops")).toThrow(/not closed with \}\$/);
 		expect(() => lexer("a \\ b")).toThrow(/must be followed by a character/);
 	});
+
+	it("reads template literals nested inside ${ } of a template literal", () => {
+		const code = (src) => lexer(src).find((t) => t.type === T.LOGIC).value;
+		const nested = "b = `${a ? `<p>N</p><p>${list.map((n) => `<a href=\"#${n}\">${n}</a>`).join(\"\")}</p>` : `<p>none</p>`}`;";
+		expect(code(`runtime \${ ${nested} }\$`).trim()).toBe(nested);
+		expect(code("${ u = `${ x ? `see https://a.org/${y}` : '' }`; }$").trim()).toBe("u = `${ x ? `see https://a.org/${y}` : '' }`;");
+		expect(code("${ t = `${ `}$` }`; }$").trim()).toBe("t = `${ `}$` }`;");
+		expect(code("${ o = `a ${ { k: 1 }.k } b`; }$").trim()).toBe("o = `a ${ { k: 1 }.k } b`;");
+	});
 });

@@ -60,6 +60,12 @@ describe("render()", () => {
 		expect(div.getAttribute("datax")).toBe("2");
 	});
 
+	it("keeps the body of a [template] in its content", async () => {
+		const fragment = await am({ src: `[template][li = class: "item"]x[end][end]` }).render();
+		const template = fragment.querySelector("template");
+		expect(template.content.querySelector("li.item").textContent).toBe("x");
+	});
+
 	it("turns { raw } HTML into elements", async () => {
 		const fragment = await am({ src: `[div]\${ { raw: "<em>x</em><b>y</b>" } }\$[end]` }).render();
 		expect(fragment.querySelector("em").textContent).toBe("x");

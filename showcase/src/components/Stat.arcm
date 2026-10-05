@@ -1,0 +1,32 @@
+# ###################
+# One number with a label. The number comes in the body, so it can be
+# the page's live value: [Stat = label: "Score"]runtime ${ score() }$[end]
+# ###################
+${ const { label } = ArcMoon.props(); }$
+
+[div = class: "stat"]
+  [span = class: "label"]${ label }$[end]
+  [span = class: "value"][slot!][end]
+[end]
+
+[style]
+  .stat {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 14px 16px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+  }
+  .label {
+    font: 11px/1 var(--mono);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--faint);
+  }
+  .value {
+    font: 400 28px/1.1 var(--serif);
+    font-variant-numeric: tabular-nums;
+  }
+[end]

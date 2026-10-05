@@ -1,0 +1,136 @@
+[
+	{
+		"slug": "snake",
+		"title": "Snake",
+		"summary": "The classic game, made with signals.",
+		"uses": [
+			"${ }$ build time",
+			"JSON imports",
+			"[for-each]",
+			"components",
+			"slots",
+			"runtime ${ }$",
+			"signals",
+			"computed",
+			"effect",
+			"live values",
+			"shared refs",
+			"npm in the browser",
+			"exported values",
+			"css. props",
+			"-- props",
+			"scoped styles"
+		],
+		"ready": true
+	},
+	{
+		"slug": "todos",
+		"title": "Todos",
+		"summary": "A to-do list saved in your browser.",
+		"uses": [
+			"${ }$ build time",
+			"JSON imports",
+			"exported values",
+			"signals",
+			"computed",
+			"effect",
+			"<template>",
+			"shared refs",
+			"live values",
+			"localStorage",
+			"components",
+			"slots",
+			"css. props",
+			"scoped styles"
+		],
+		"ready": true
+	},
+	{
+		"slug": "countries",
+		"title": "Country explorer",
+		"summary": "Every country, fetched at build time.",
+		"uses": [
+			"fetch at build time",
+			"node:fs",
+			"build-time stats",
+			"[for-each]",
+			"components",
+			"css. props",
+			"data-* attributes",
+			"works without JavaScript",
+			"signals",
+			"computed",
+			"effect",
+			"shared refs",
+			"<dialog>",
+			"URL hash",
+			"scoped styles"
+		],
+		"ready": true
+	},
+	{
+		"slug": "kanban",
+		"title": "Kanban board",
+		"summary": "Drag cards between columns.",
+		"uses": [
+			"JSON imports",
+			"build-time checks",
+			"[for-each]",
+			"components",
+			"exported values",
+			"signals",
+			"computed",
+			"effect",
+			"shared refs",
+			"<template>",
+			"pointer events",
+			"<dialog>",
+			"localStorage",
+			"-- props",
+			"scoped styles"
+		],
+		"ready": true
+	},
+	{
+		"slug": "dashboard",
+		"title": "Data dashboard",
+		"summary": "World data as live SVG charts.",
+		"uses": [
+			"fetch at build time",
+			"node:fs",
+			"SVG built at build time",
+			"components with data props",
+			"[for-each]",
+			"exported values",
+			"signals",
+			"computed",
+			"effect",
+			"shared refs",
+			"live values",
+			"-- props",
+			"pointer events",
+			"scoped styles"
+		],
+		"ready": true
+	},
+	{
+		"slug": "sheet",
+		"title": "Spreadsheet",
+		"summary": "Cells and formulas that update each other.",
+		"uses": [
+			"JSON imports",
+			"[for-each]",
+			"exported values",
+			"signals",
+			"computed",
+			"effect",
+			"fine-grained updates",
+			"shared refs",
+			"live values",
+			"localStorage",
+			"css. props",
+			"scoped styles"
+		],
+		"ready": true
+	}
+]

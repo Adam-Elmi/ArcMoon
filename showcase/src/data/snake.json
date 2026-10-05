@@ -1,0 +1,14 @@
+{
+	"cols": 28,
+	"rows": 16,
+	"length": 4,
+	"levels": [
+		{ "from": 0, "tick": 140 },
+		{ "from": 4, "tick": 120 },
+		{ "from": 9, "tick": 104 },
+		{ "from": 15, "tick": 90 },
+		{ "from": 22, "tick": 78 },
+		{ "from": 30, "tick": 67 },
+		{ "from": 40, "tick": 58 }
+	]
+}

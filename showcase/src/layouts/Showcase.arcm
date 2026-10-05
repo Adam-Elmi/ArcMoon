@@ -1,0 +1,244 @@
+# ###################
+# The page frame for every showcase: header (logo, showcase info, prev / next),
+# the page itself, and a footer with the ArcMoon version. Props: slug (none on the home page)
+# ###################
+[import = Tag: "@/components/Tag.arcm" !]
+
+${
+  import { readFileSync } from "node:fs";
+  import showcases from "../data/showcases.json";
+
+  const { slug } = ArcMoon.props();
+  const logo = readFileSync(new URL("../logo.svg", import.meta.url), "utf8").replace(/<metadata>[\s\S]*?<\/metadata>/, "");
+  const ready = showcases.filter((s) => s.ready);
+  const current = showcases.find((s) => s.slug === slug) ?? null;
+  const at = ready.findIndex((s) => s.slug === slug);
+  const prev = at > 0 ? ready[at - 1] : null;
+  const next = at >= 0 && at < ready.length - 1 ? ready[at + 1] : null;
+  const number = current ? String(showcases.indexOf(current) + 1).padStart(2, "0") : "";
+  const pageTitle = current ? `${current.title} · ArcMoon showcase` : "ArcMoon showcase";
+  const intro = current ? [current] : [];
+  const icon = "data:image/svg+xml," + encodeURIComponent(logo);
+}$
+
+runtime ${
+  // ###################
+  // Light / dark: the choice is kept in this browser
+  // ###################
+  const toggle = ArcMoon.ref(ArcMoon.defineRef("theme"));
+  toggle.onclick = () => {
+    const theme = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
+    document.documentElement.dataset.theme = theme;
+    try { localStorage.setItem("arcmoon-theme", theme); } catch {}
+  };
+}$
+
+[doctype!]
+[html = lang: "en"]
+[head]
+  [meta = charset: "utf-8" !]
+  [meta = name: "viewport", content: "width=device-width, initial-scale=1" !]
+  [title]${ pageTitle }$[end]
+  [link = rel: "icon", href: ${ icon }$ !]
+  [meta = name: "description", content: ${ current ? current.summary : "Projects built with ArcMoon, a template language that builds web pages." }$ !]
+  [script = arcm-raw: true]try{var t=localStorage.getItem("arcmoon-theme");if(!t)t=matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light";document.documentElement.dataset.theme=t}catch(e){}[end]
+  [link = rel: "preconnect", href: "https://fonts.googleapis.com" !]
+  [link = rel: "preconnect", href: "https://fonts.gstatic.com", crossorigin: true !]
+  [link = rel: "stylesheet", href: "https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Serif:wght@300;400&display=swap" !]
+  [link = rel: "stylesheet", href: "../styles/site.css" !]
+[end]
+[body]
+[div = class: "frame"]
+  [header = class: "bar"]
+    [a = class: "brand", href: "index.html", aria-label: "ArcMoon showcase home"]
+      [span = class: "logo"]${ { raw: logo } }$[end]
+      [span = class: "word"]ArcMoon[end]
+      [span = class: "crumb"]/ showcase[end]
+    [end]
+    [nav = class: "steps", aria-label: "Showcases"]
+      [a = class: "step", hidden: ${ !current }$, href: ${ prev ? `${prev.slug}.html` : null }$, aria-disabled: ${ prev ? null : "true" }$, title: ${ prev ? prev.title : "No earlier showcase" }$]
+        [svg = viewBox: "0 0 16 16", aria-hidden: "true"][path = d: "M10 3 5 8l5 5", fill: "none", stroke: "currentColor", stroke-width: "1.5" !][end]
+        [span]Prev[end]
+      [end]
+      [a = class: "step", hidden: ${ !current }$, href: ${ next ? `${next.slug}.html` : null }$, aria-disabled: ${ next ? null : "true" }$, title: ${ next ? next.title : "No later showcase" }$]
+        [span]Next[end]
+        [svg = viewBox: "0 0 16 16", aria-hidden: "true"][path = d: "m6 3 5 5-5 5", fill: "none", stroke: "currentColor", stroke-width: "1.5" !][end]
+      [end]
+      [button = class: "theme", type: "button", arcm-ref: "theme", aria-label: "Switch light and dark"]
+        [svg = class: "sun", viewBox: "0 0 16 16", aria-hidden: "true"][circle = cx: "8", cy: "8", r: "3", fill: "none", stroke: "currentColor", stroke-width: "1.5" !][path = d: "M8 1v2M8 13v2M1 8h2M13 8h2M3 3l1.4 1.4M11.6 11.6 13 13M3 13l1.4-1.4M11.6 4.4 13 3", stroke: "currentColor", stroke-width: "1.5" !][end]
+        [svg = class: "moon", viewBox: "0 0 16 16", aria-hidden: "true"][path = d: "M13.5 9.5A5.5 5.5 0 0 1 6.5 2.5a5.5 5.5 0 1 0 7 7Z", fill: "none", stroke: "currentColor", stroke-width: "1.5" !][end]
+      [end]
+    [end]
+  [end]
+
+  [for-each = ${ intro }$, as: "show"]
+    [section = class: "intro"]
+      [p = class: "eyebrow"]Showcase ${ number }$[end]
+      [h1]${ show.title }$[end]
+      [p = class: "summary"]${ show.summary }$[end]
+    [end]
+  [end]
+
+  [main][slot!][end]
+
+  [for-each = ${ intro }$, as: "show"]
+    [section = class: "uses"]
+      [span = class: "eyebrow"]What it uses[end]
+      [div = class: "tags"]
+        [for-each = ${ show.uses }$, as: "use"][Tag]${ use }$[end][end]
+      [end]
+    [end]
+  [end]
+
+  [footer = class: "foot"]
+    [span]ArcMoon [span = class: "version"]${ ArcMoon.version }$[end][end]
+    [span = class: "made"]Every page here is a .arcm file.[end]
+    [a = href: "https://github.com/Adam-Elmi/ArcMoon"]Source on GitHub[end]
+  [end]
+[end]
+[end]
+[end]
+
+[style]
+  .bar {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    height: 56px;
+    padding: 0 var(--gutter);
+    background: color-mix(in srgb, var(--bg) 88%, transparent);
+    backdrop-filter: blur(8px);
+    border-bottom: 1px solid var(--line);
+  }
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    text-decoration: none;
+  }
+  .logo :global(svg) {
+    display: block;
+    width: 22px;
+    height: 22px;
+  }
+  .word {
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+  .crumb {
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--faint);
+  }
+  .steps {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .step,
+  .theme {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 32px;
+    padding: 0 10px;
+    font: 500 13px/1 var(--sans);
+    color: var(--ink);
+    text-decoration: none;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s;
+  }
+  .step:hover,
+  .theme:hover {
+    border-color: var(--line-strong);
+  }
+  .step[hidden] {
+    display: none;
+  }
+  .step[aria-disabled="true"] {
+    color: var(--faint);
+    background: transparent;
+    cursor: default;
+  }
+  .step svg,
+  .theme svg {
+    width: 14px;
+    height: 14px;
+  }
+  .theme {
+    width: 32px;
+    padding: 0;
+    justify-content: center;
+  }
+  .moon {
+    display: none;
+  }
+  :global(:root[data-theme="dark"]) .sun {
+    display: none;
+  }
+  :global(:root[data-theme="dark"]) .moon {
+    display: block;
+  }
+  .intro {
+    padding: clamp(36px, 6vw, 64px) var(--gutter) 32px;
+    border-bottom: 1px solid var(--line);
+  }
+  .intro h1 {
+    margin: 10px 0 12px;
+    font: 300 clamp(40px, 6vw, 64px)/1.05 var(--serif);
+    letter-spacing: -0.02em;
+  }
+  .summary {
+    max-width: 56ch;
+    margin: 0;
+    font-size: 17px;
+    color: var(--muted);
+  }
+  .uses {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 28px var(--gutter) 32px;
+    border-top: 1px solid var(--line);
+  }
+  .tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .foot {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 24px;
+    padding: 20px var(--gutter);
+    border-top: 1px solid var(--line);
+    font: 13px/1.4 var(--mono);
+    color: var(--muted);
+  }
+  .version {
+    color: var(--accent);
+  }
+  .made {
+    flex: 1;
+  }
+  .foot a {
+    text-decoration: none;
+  }
+  .foot a:hover {
+    color: var(--ink);
+  }
+  @media (max-width: 560px) {
+    .crumb,
+    .step span {
+      display: none;
+    }
+  }
+[end]

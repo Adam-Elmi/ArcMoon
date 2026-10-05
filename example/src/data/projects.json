@@ -1,6 +1,0 @@
-[
-	{ "name": "Lexer", "color": "#0984e3", "tag": "core", "features": ["tokens", "positions"] },
-	{ "name": "Evaluator", "color": "#00b894", "tag": "build", "features": ["Node.js", "npm", "JSON"] },
-	{ "name": "Runtime", "color": "#e17055", "tag": "browser", "features": ["signals", "refs", "esbuild"] },
-	{ "name": "Protector", "color": "#6c5ce7", "features": [] }
-]

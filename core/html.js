@@ -157,6 +157,13 @@ export const toHast = (node, inSvg = false) => {
 				out.properties[EXACT] = token;
 				out.data = { exact, token };
 			}
+			// ###################
+			// hast keeps a <template>'s inside in "content", not in its children
+			// ###################
+			if (!svgHere && node.tagName.toLowerCase() === "template") {
+				out.content = { type: "root", children: out.children };
+				out.children = [];
+			}
 			return out;
 		}
 		default:
@@ -170,6 +177,7 @@ export const toHast = (node, inSvg = false) => {
 const exactOf = (node, map = new Map()) => {
 	if (node.data?.exact) map.set(node.data.token, node.data.exact);
 	for (const c of node.children ?? []) exactOf(c, map);
+	if (node.content) exactOf(node.content, map);
 	return map;
 };
 

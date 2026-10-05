@@ -1,0 +1,87 @@
+# ###################
+# A ranked bar chart: one row per country, written at build time. The page sets
+# each bar's width, value and place (CSS order) for the chosen year
+# ###################
+${ const { title, note, countries } = ArcMoon.props(); }$
+
+[figure = class: "bars"]
+  [figcaption]
+    [span = class: "title"]${ title }$[end]
+    [span = class: "note"]${ note }$[end]
+  [end]
+  [ol = class: "rows"]
+    [for-each = ${ countries }$, as: "c"]
+      [li = class: "row", data-code: ${ c.code }$, arcm-shared-ref: "bar", --color: ${ c.color }$]
+        [span = class: "name"]${ c.name }$[end]
+        [span = class: "track"][span = class: "fill" !][end]
+        [span = class: "value"][end]
+      [end]
+    [end]
+  [end]
+[end]
+
+[style]
+  .bars {
+    margin: 0;
+    padding: 18px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+  }
+  figcaption {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 4px 12px;
+    margin-bottom: 14px;
+  }
+  .title {
+    font: 400 19px/1.2 var(--serif);
+  }
+  .note {
+    font: 11px var(--mono);
+    color: var(--faint);
+  }
+  .rows {
+    display: flex;
+    flex-direction: column;
+    gap: 9px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .row {
+    display: grid;
+    grid-template-columns: 96px 1fr 64px;
+    align-items: center;
+    gap: 10px;
+    font-size: 13px;
+    transition: opacity 0.2s;
+  }
+  .row[data-off] {
+    display: none;
+  }
+  .row[data-dim] {
+    opacity: 0.35;
+  }
+  .track {
+    height: 14px;
+    background: var(--sunken);
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  .fill {
+    display: block;
+    height: 100%;
+    width: 0;
+    background: var(--color);
+    border-radius: 4px;
+    transition: width 0.35s ease;
+  }
+  .value {
+    font: 12px var(--mono);
+    text-align: right;
+    color: var(--muted);
+  }
+[end]

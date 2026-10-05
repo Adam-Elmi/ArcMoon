@@ -31,7 +31,7 @@ describe("build timeout", () => {
 	it("names the component that was running", async () => {
 		await mkdir(join(dir, "c"), { recursive: true });
 		await writeFile(join(dir, "c/Slow.arcm"), `[p]\${ while (true) {} }\$[end]`);
-		await expect(compile(`[import = Slow: "./c/Slow.arcm" !][Slow!]`, { timeout: 500 })).rejects.toThrow(/Slow\.arcm {2}\$\{ \}\$ code took longer than 500 ms/);
+		await expect(compile(`[import = Slow: "./c/Slow.arcm" !][Slow!]`, { timeout: 1500 })).rejects.toThrow(/Slow\.arcm {2}\$\{ \}\$ code took longer than 1500 ms/);
 	});
 
 	it("stops timers that are still running", async () => {

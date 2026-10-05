@@ -1,0 +1,509 @@
+# ###################
+# Todos. Build time: starter todos come from a JSON file. In the browser: the list
+# is signals; filters, counts and search are computed; an effect saves to
+# localStorage and another draws the list. ArcMoon has no live [for-each] yet,
+# so each item is cloned from a [template] and kept by id (only changes touch the page)
+# ###################
+[import = Showcase: "@/layouts/Showcase.arcm" !]
+[import = Key: "@/snake/Key.arcm" !]
+
+${
+  import starter from "../src/data/todos.json";
+  export const examples = starter;
+}$
+
+runtime ${
+  import { signal, computed, effect } from "arcmoon/reactive";
+
+  const SAVE = "arcmoon-todos";
+  const load = () => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(SAVE));
+      if (Array.isArray(saved)) return saved;
+    } catch {}
+    return examples.map((t, i) => ({ id: i + 1, ...t }));
+  };
+
+  // ###################
+  // State: signals
+  // ###################
+  const todos = signal(load());
+  const filter = signal("all");              // all | active | done
+  const query = signal("");
+  const editing = signal(null);              // id of the todo being edited
+  const removed = signal(null);              // { todo, at } for Undo
+  let nextId = Math.max(0, ...todos().map((t) => t.id)) + 1;
+
+  // ###################
+  // Computed: what the page shows
+  // ###################
+  const left = computed(() => todos().filter((t) => !t.done).length);
+  const doneCount = computed(() => todos().length - left());
+  const allDone = computed(() => todos().length > 0 && left() === 0);
+  const visible = computed(() => {
+    const words = query().trim().toLowerCase();
+    return todos().filter((t) =>
+      (filter() === "all" || (filter() === "done") === t.done) &&
+      (!words || t.text.toLowerCase().includes(words))
+    );
+  });
+  const empty = computed(() => {
+    if (visible().length) return "";
+    if (query().trim()) return `Nothing matches “${query().trim()}”.`;
+    return { all: "Nothing to do. Add something above.", active: "All done. Nice.", done: "Nothing done yet." }[filter()];
+  });
+  const leftText = computed(() => `${left()} ${left() === 1 ? "item" : "items"} left`);
+
+  // ###################
+  // Changes: every change makes a new list, so effects see it
+  // ###################
+  const update = (id, change) => todos(todos().map((t) => (t.id === id ? { ...t, ...change } : t)));
+  const add = (text) => {
+    const clean = text.trim();
+    if (!clean) return false;
+    todos([...todos(), { id: nextId++, text: clean, done: false }]);
+    if (filter() === "done") filter("all");
+    return true;
+  };
+  let undoTimer = null;
+  const remove = (id) => {
+    const at = todos().findIndex((t) => t.id === id);
+    removed({ todo: todos()[at], at });
+    todos(todos().filter((t) => t.id !== id));
+    clearTimeout(undoTimer);
+    undoTimer = setTimeout(() => removed(null), 5000);
+  };
+  const undo = () => {
+    const last = removed();
+    if (!last) return;
+    const list = [...todos()];
+    list.splice(last.at, 0, last.todo);
+    todos(list);
+    removed(null);
+  };
+  const toggleAll = () => {
+    const done = !allDone();
+    todos(todos().map((t) => ({ ...t, done })));
+  };
+  const clearDone = () => todos(todos().filter((t) => !t.done));
+
+  // ###################
+  // Saving: an effect writes every change to localStorage
+  // ###################
+  effect(() => {
+    const list = todos();
+    try { localStorage.setItem(SAVE, JSON.stringify(list)); } catch {}
+  });
+
+  // ###################
+  // Drawing the list: clone the [template] per todo, keep elements by id,
+  // and only add, remove, move or change what's different
+  // ###################
+  const list = ArcMoon.ref(ArcMoon.defineRef("list"));
+  const template = ArcMoon.ref(ArcMoon.defineRef("item"));
+  const rows = new Map();
+
+  const make = (todo) => {
+    const row = template.content.firstElementChild.cloneNode(true);
+    const check = row.querySelector("input[type=checkbox]");
+    const label = row.querySelector(".todo-text");
+    const field = row.querySelector(".todo-edit");
+    row.dataset.id = todo.id;
+    check.addEventListener("change", () => update(todo.id, { done: check.checked }));
+    label.addEventListener("dblclick", () => editing(todo.id));
+    row.querySelector(".todo-remove").addEventListener("click", () => remove(todo.id));
+    const save = () => {
+      if (editing() !== todo.id) return;
+      const text = field.value.trim();
+      text ? update(todo.id, { text }) : remove(todo.id);
+      editing(null);
+    };
+    field.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") save();
+      if (event.key === "Escape") editing(null);
+    });
+    field.addEventListener("blur", save);
+    return row;
+  };
+
+  effect(() => {
+    const wanted = visible();
+    const ids = new Set(wanted.map((t) => t.id));
+    for (const [id, row] of rows) if (!ids.has(id)) { row.remove(); rows.delete(id); }
+    wanted.forEach((todo, i) => {
+      let row = rows.get(todo.id);
+      if (!row) rows.set(todo.id, (row = make(todo)));
+      if (list.children[i] !== row) list.insertBefore(row, list.children[i] ?? null);
+      const check = row.querySelector("input[type=checkbox]");
+      const label = row.querySelector(".todo-text");
+      const field = row.querySelector(".todo-edit");
+      check.checked = todo.done;
+      row.toggleAttribute("data-done", todo.done);
+      if (label.textContent !== todo.text) label.textContent = todo.text;
+      const isEditing = editing() === todo.id;
+      if (isEditing !== row.hasAttribute("data-editing")) {
+        row.toggleAttribute("data-editing", isEditing);
+        if (isEditing) {
+          field.value = todo.text;
+          field.focus();
+          field.select();
+        }
+      }
+    });
+  });
+
+  // ###################
+  // The new-todo field, filters, and a key to focus the field
+  // ###################
+  const input = ArcMoon.ref(ArcMoon.defineRef("new"));
+  input.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && add(input.value)) input.value = "";
+  });
+  for (const button of ArcMoon.refs(ArcMoon.defineRef("filter"))) {
+    button.addEventListener("click", () => filter(button.dataset.filter));
+    effect(() => button.setAttribute("aria-pressed", String(filter() === button.dataset.filter)));
+  }
+  addEventListener("keydown", (event) => {
+    if (event.key === "/" && !event.target.closest("input")) {
+      event.preventDefault();
+      input.focus();
+    }
+  });
+}$
+
+[Showcase = slug: "todos"]
+  [section = class: "todo-guide"]
+    [p = class: "todo-goal"]Your list stays in this browser. Close the page and come back: it's still here.[end]
+    [dl = class: "todo-keys"]
+      [div][dt][Key]Enter[end][end][dd]Add, or save an edit[end][end]
+      [div][dt]Double-click[end][dd]Edit a todo[end][end]
+      [div][dt][Key]Esc[end][end][dd]Stop editing[end][end]
+      [div][dt][Key]/[end][end][dd]Jump to the new-todo field[end][end]
+    [end]
+  [end]
+
+  [section = class: "todo-app"]
+    [div = class: "todo-card"]
+      [div = class: "todo-add"]
+        [button = class: "todo-all", type: "button", title: "Mark all done or not done", aria-label: "Mark all", aria-pressed: runtime ${ String(allDone()) }$, onclick: runtime ${ () => toggleAll() }$]
+          [svg = viewBox: "0 0 16 16", aria-hidden: "true"][path = d: "m3 8.5 3 3 7-7", fill: "none", stroke: "currentColor", stroke-width: "1.8" !][end]
+        [end]
+        [input = class: "todo-new", arcm-ref: "new", type: "text", placeholder: "What needs doing?", aria-label: "New todo", autocomplete: "off" !]
+      [end]
+
+      [div = class: "todo-tools"]
+        [div = class: "todo-filters", role: "group", aria-label: "Show"]
+          [button = class: "todo-filter", type: "button", data-filter: "all", arcm-shared-ref: "filter"]All [span = class: "todo-count"]runtime ${ todos().length }$[end][end]
+          [button = class: "todo-filter", type: "button", data-filter: "active", arcm-shared-ref: "filter"]Active [span = class: "todo-count"]runtime ${ left() }$[end][end]
+          [button = class: "todo-filter", type: "button", data-filter: "done", arcm-shared-ref: "filter"]Done [span = class: "todo-count"]runtime ${ doneCount() }$[end][end]
+        [end]
+        [input = class: "todo-search", type: "search", placeholder: "Search", aria-label: "Search todos", oninput: runtime ${ (event) => query(event.target.value) }$ !]
+      [end]
+
+      [ul = class: "todo-list", arcm-ref: "list"][end]
+      [p = class: "todo-empty", hidden: runtime ${ !empty() }$]runtime ${ empty() }$[end]
+
+      [div = class: "todo-foot"]
+        [span]runtime ${ leftText() }$[end]
+        [button = class: "todo-clear", type: "button", hidden: runtime ${ doneCount() === 0 }$, onclick: runtime ${ () => clearDone() }$]Clear done (runtime ${ doneCount() }$)[end]
+      [end]
+    [end]
+
+    [div = class: "todo-toast", role: "status", hidden: runtime ${ !removed() }$]
+      [span]Deleted “runtime ${ removed()?.todo.text ?? "" }$”[end]
+      [button = type: "button", onclick: runtime ${ () => undo() }$]Undo[end]
+    [end]
+  [end]
+
+  [template = arcm-ref: "item"]
+    [li = class: "todo-item"]
+      [label = class: "todo-check"][input = type: "checkbox", aria-label: "Done" !][end]
+      [span = class: "todo-text"][end]
+      [input = class: "todo-edit", type: "text", aria-label: "Edit todo" !]
+      [button = class: "todo-remove", type: "button", aria-label: "Delete"]
+        [svg = viewBox: "0 0 16 16", aria-hidden: "true"][path = d: "M4 4l8 8M12 4l-8 8", stroke: "currentColor", stroke-width: "1.6" !][end]
+      [end]
+    [end]
+  [end]
+[end]
+
+[style]
+  .todo-guide {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px 40px;
+    padding: 20px var(--gutter);
+    border-bottom: 1px solid var(--line);
+    background: var(--surface);
+  }
+  .todo-goal {
+    margin: 0;
+    max-width: 40ch;
+    color: var(--muted);
+  }
+  .todo-keys {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 28px;
+    margin: 0;
+    font-size: 13px;
+    color: var(--muted);
+  }
+  .todo-keys div {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .todo-keys dt {
+    font: 500 12px var(--mono);
+    color: var(--ink);
+  }
+  .todo-keys dd {
+    margin: 0;
+  }
+  .todo-app {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 16px;
+    padding: 32px var(--gutter) 48px;
+  }
+  .todo-card {
+    width: 100%;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    overflow: hidden;
+  }
+  .todo-add {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--line);
+  }
+  .todo-all {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+    width: 28px;
+    height: 28px;
+    color: var(--faint);
+    background: transparent;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    cursor: pointer;
+  }
+  .todo-all[aria-pressed="true"] {
+    color: var(--accent);
+    border-color: var(--accent);
+  }
+  .todo-all svg {
+    width: 14px;
+    height: 14px;
+  }
+  .todo-new {
+    flex: 1;
+    min-width: 0;
+    padding: 8px 0;
+    font: 400 18px/1.3 var(--sans);
+    color: var(--ink);
+    background: transparent;
+    border: 0;
+    outline: 0;
+  }
+  .todo-new::placeholder,
+  .todo-search::placeholder {
+    color: var(--faint);
+  }
+  .todo-tools {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 10px 18px;
+    background: var(--bg);
+    border-bottom: 1px solid var(--line);
+  }
+  .todo-filters {
+    display: inline-flex;
+    padding: 3px;
+    background: var(--sunken);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+  }
+  .todo-filter {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 28px;
+    padding: 0 12px;
+    font: 500 13px/1 var(--sans);
+    color: var(--muted);
+    background: transparent;
+    border: 0;
+    border-radius: 6px;
+    cursor: pointer;
+  }
+  .todo-filter[aria-pressed="true"] {
+    color: var(--ink);
+    background: var(--surface);
+    box-shadow: 0 0 0 1px var(--line);
+  }
+  .todo-count {
+    font: 11px var(--mono);
+    color: var(--faint);
+  }
+  .todo-search {
+    width: min(100%, 220px);
+    height: 32px;
+    padding: 0 10px;
+    font: 14px var(--sans);
+    color: var(--ink);
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 7px;
+  }
+  .todo-list {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .todo-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-height: 54px;
+    padding: 0 18px;
+    border-bottom: 1px solid var(--line);
+  }
+  .todo-check {
+    display: flex;
+    cursor: pointer;
+  }
+  .todo-check input {
+    width: 18px;
+    height: 18px;
+    margin: 0;
+    accent-color: var(--accent);
+    cursor: pointer;
+  }
+  .todo-text {
+    flex: 1;
+    padding: 14px 0;
+    font-size: 16px;
+    word-break: break-word;
+    cursor: text;
+  }
+  .todo-item[data-done] .todo-text {
+    color: var(--faint);
+    text-decoration: line-through;
+  }
+  .todo-edit {
+    display: none;
+    flex: 1;
+    height: 36px;
+    padding: 0 10px;
+    font: 16px var(--sans);
+    color: var(--ink);
+    background: var(--bg);
+    border: 1px solid var(--accent);
+    border-radius: 6px;
+    outline: 0;
+  }
+  .todo-item[data-editing] .todo-edit {
+    display: block;
+  }
+  .todo-item[data-editing] .todo-text,
+  .todo-item[data-editing] .todo-remove {
+    display: none;
+  }
+  .todo-remove {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    color: var(--faint);
+    background: transparent;
+    border: 0;
+    border-radius: 6px;
+    opacity: 0;
+    cursor: pointer;
+  }
+  .todo-item:hover .todo-remove,
+  .todo-remove:focus-visible {
+    opacity: 1;
+  }
+  .todo-remove:hover {
+    color: var(--bad);
+    background: var(--sunken);
+  }
+  .todo-remove svg {
+    width: 14px;
+    height: 14px;
+  }
+  .todo-empty {
+    margin: 0;
+    padding: 28px 18px;
+    text-align: center;
+    color: var(--faint);
+    border-bottom: 1px solid var(--line);
+  }
+  .todo-empty[hidden] {
+    display: none;
+  }
+  .todo-foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    min-height: 46px;
+    padding: 0 18px;
+    font: 13px var(--mono);
+    color: var(--muted);
+  }
+  .todo-clear {
+    font: 500 13px var(--sans);
+    color: var(--muted);
+    background: transparent;
+    border: 0;
+    cursor: pointer;
+  }
+  .todo-clear:hover {
+    color: var(--bad);
+  }
+  .todo-clear[hidden] {
+    display: none;
+  }
+  .todo-toast {
+    align-self: center;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 10px 12px 10px 16px;
+    font-size: 14px;
+    color: var(--bg);
+    background: var(--ink);
+    border-radius: 8px;
+  }
+  .todo-toast[hidden] {
+    display: none;
+  }
+  .todo-toast button {
+    font: 600 14px var(--sans);
+    color: var(--accent-soft);
+    background: transparent;
+    border: 0;
+    cursor: pointer;
+  }
+  @media (pointer: coarse) {
+    .todo-remove {
+      opacity: 1;
+    }
+  }
+[end]

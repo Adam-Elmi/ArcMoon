@@ -1,0 +1,12 @@
+{
+	"name": "arcmoon-showcase",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"build": "node ../cli/cli.mjs build pages",
+		"serve": "node serve.js"
+	},
+	"dependencies": {
+		"canvas-confetti": "^1.9.3"
+	}
+}

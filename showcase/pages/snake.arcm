@@ -1,0 +1,520 @@
+# ###################
+# Snake. Build time: the settings come from a JSON file, and the board's
+# cells are written by [for-each]. In the browser: the whole game is ArcMoon
+# reactivity (signals, computed, effect), live values, shared refs, and an
+# npm package (confetti) for a new best score
+# ###################
+[import = Showcase: "@/layouts/Showcase.arcm" !]
+[import = Stat: "@/components/Stat.arcm" !]
+[import = Key: "@/snake/Key.arcm" !]
+[import = Pad: "@/snake/Pad.arcm" !]
+
+${
+  import settings from "../src/data/snake.json";
+  export const config = settings;
+  const cells = Array.from({ length: settings.cols * settings.rows }, (_, i) => i);
+}$
+
+runtime ${
+  import { signal, computed, effect } from "arcmoon/reactive";
+  import confetti from "canvas-confetti";
+
+  const COLS = config.cols;
+  const ROWS = config.rows;
+  const BEST = "arcmoon-snake-best";
+  const MOVES = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] };
+  const OPPOSITE = { up: "down", down: "up", left: "right", right: "left" };
+  const readBest = () => { try { return Number(localStorage.getItem(BEST)) || 0; } catch { return 0; } };
+
+  // ###################
+  // The game is signals. A cell is a number: y * COLS + x. The snake is a list
+  // of cells, head first; turns wait in a short queue so quick presses count
+  // ###################
+  const snake = signal([]);
+  const food = signal(null);
+  const dir = signal("right");
+  const queue = signal([]);
+  const crashed = signal(null);
+  const status = signal("ready");            // ready | playing | paused | over | won
+  const best = signal(readBest());
+  const newBest = signal(false);
+
+  // ###################
+  // Everything else follows from those signals
+  // ###################
+  const head = computed(() => snake()[0]);
+  const length = computed(() => snake().length);
+  const score = computed(() => Math.max(0, length() - config.length));
+  const levelIndex = computed(() => config.levels.findLastIndex((l) => score() >= l.from));
+  const level = computed(() => levelIndex() + 1);
+  const tick = computed(() => config.levels[levelIndex()].tick);
+  const hue = computed(() => 222 - levelIndex() * 26);
+  const progress = computed(() => {
+    const now = config.levels[levelIndex()];
+    const next = config.levels[levelIndex() + 1];
+    return next ? Math.round(((score() - now.from) / (next.from - now.from)) * 100) : 100;
+  });
+
+  // ###################
+  // Words for the overlay and the main button
+  // ###################
+  const headline = computed(() => ({
+    ready: "Ready?",
+    paused: "Paused",
+    over: newBest() ? "New best!" : "Game over",
+    won: "You filled the board"
+  })[status()] ?? "");
+  const hint = computed(() => ({
+    ready: "Press an arrow key, or Start.",
+    paused: "Press Space to go on.",
+    over: `You ate ${score()} and grew to ${length()}.`,
+    won: `${score()} eaten. Nothing left to eat.`
+  })[status()] ?? "");
+  const action = computed(() => ({ ready: "Start", paused: "Resume" })[status()] ?? "Play again");
+
+  // ###################
+  // The rules: a new game, food on a free cell, one move
+  // ###################
+  const placeFood = (body) => {
+    const taken = new Set(body);
+    const free = [];
+    for (let i = 0; i < COLS * ROWS; i++) if (!taken.has(i)) free.push(i);
+    return free.length ? free[Math.floor(Math.random() * free.length)] : null;
+  };
+
+  const reset = () => {
+    const start = Math.floor(ROWS / 2) * COLS + Math.floor(COLS / 3);
+    const body = Array.from({ length: config.length }, (_, i) => start - i);
+    snake(body);
+    food(placeFood(body));
+    dir("right");
+    queue([]);
+    crashed(null);
+    newBest(false);
+  };
+
+  const turn = (next) => {
+    const last = queue().at(-1) ?? dir();
+    if (next === last || next === OPPOSITE[last] || queue().length >= 2) return;
+    queue([...queue(), next]);
+  };
+
+  const move = () => {
+    const [next = dir(), ...rest] = queue();
+    queue(rest);
+    dir(next);
+    const [dx, dy] = MOVES[next];
+    const x = (head() % COLS) + dx;
+    const y = Math.floor(head() / COLS) + dy;
+    const to = y * COLS + x;
+    const eating = to === food();
+    const body = eating ? snake() : snake().slice(0, -1);
+    if (x < 0 || y < 0 || x >= COLS || y >= ROWS || body.includes(to)) return finish(head());
+    snake([to, ...body]);
+    if (!eating) return;
+    food(placeFood(snake()));
+    if (food() === null) finish(null, true);
+  };
+
+  // ###################
+  // Drawing: an effect reads the signals and marks the cells (shared refs);
+  // only cells that change are touched
+  // ###################
+  const cells = ArcMoon.refs(ArcMoon.defineRef("cell"));
+  let drawn = new Map();
+  effect(() => {
+    const now = new Map();
+    snake().forEach((at, i) => now.set(at, i === 0 ? (crashed() === at ? "crash" : "head") : "body"));
+    if (food() !== null) now.set(food(), "food");
+    for (const at of drawn.keys()) if (!now.has(at)) delete cells[at].dataset.kind;
+    for (const [at, kind] of now) if (drawn.get(at) !== kind) cells[at].dataset.kind = kind;
+    drawn = now;
+  });
+
+  // ###################
+  // The game loop: one move per tick; the tick gets shorter each level
+  // ###################
+  const board = ArcMoon.ref(ArcMoon.defineRef("board"));
+  const game = ArcMoon.ref(ArcMoon.defineRef("game"));
+
+  // ###################
+  // Full screen: Start and Restart open it (a click lets the page ask for it);
+  // leaving it pauses the game. Where the browser can't, the game stays in the page
+  // ###################
+  const full = () => document.fullscreenElement ?? document.webkitFullscreenElement;
+  const enterFull = () => {
+    if (full()) return;
+    const ask = game.requestFullscreen ?? game.webkitRequestFullscreen;
+    ask?.call(game)?.catch?.(() => {});
+  };
+  const leaveFull = () => full() && (document.exitFullscreen ?? document.webkitExitFullscreen).call(document);
+  for (const name of ["fullscreenchange", "webkitfullscreenchange"]) {
+    document.addEventListener(name, () => !full() && pause());
+  }
+
+  let timer = null;
+  const loop = () => {
+    timer = null;
+    if (status() !== "playing") return;
+    move();
+    if (status() === "playing") timer = setTimeout(loop, tick());
+  };
+  const play = () => {
+    if (status() === "playing") return;
+    if (status() === "over" || status() === "won") reset();
+    status("playing");
+    enterFull();
+    if (!full()) board.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    timer ??= setTimeout(loop, tick());
+  };
+  const pause = () => {
+    if (status() !== "playing") return;
+    status("paused");
+    clearTimeout(timer);
+    timer = null;
+  };
+  const toggle = () => (status() === "playing" ? pause() : play());
+  const restart = () => {
+    clearTimeout(timer);
+    timer = null;
+    reset();
+    status("ready");
+    enterFull();
+  };
+  const finish = (at, won = false) => {
+    crashed(at);
+    status(won ? "won" : "over");
+    if (score() > best()) {
+      best(score());
+      newBest(true);
+      try { localStorage.setItem(BEST, String(score())); } catch {}
+      confetti({ particleCount: 140, spread: 75, origin: { y: 0.55 } });
+    }
+  };
+  const go = (next) => {
+    turn(next);
+    if (status() === "ready" || status() === "paused") play();
+  };
+
+  // ###################
+  // Input: keys, swipes on the board, and the arrow buttons
+  // ###################
+  const KEYS = { ArrowUp: "up", ArrowDown: "down", ArrowLeft: "left", ArrowRight: "right", w: "up", s: "down", a: "left", d: "right" };
+  addEventListener("keydown", (event) => {
+    if (event.target.closest?.("input, textarea, select") || event.metaKey || event.ctrlKey) return;
+    const next = KEYS[event.key] ?? KEYS[event.key.toLowerCase()];
+    if (next) {
+      event.preventDefault();
+      go(next);
+    } else if (event.key === " ") {
+      event.preventDefault();
+      toggle();
+    } else if (event.key === "Enter" && (status() === "over" || status() === "won")) {
+      play();
+    }
+  });
+
+  let touch = null;
+  board.addEventListener("touchstart", (event) => { touch = event.touches[0]; }, { passive: true });
+  board.addEventListener("touchend", (event) => {
+    if (!touch) return;
+    const end = event.changedTouches[0];
+    const dx = end.clientX - touch.clientX;
+    const dy = end.clientY - touch.clientY;
+    touch = null;
+    if (Math.max(Math.abs(dx), Math.abs(dy)) < 24) return;
+    go(Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? "right" : "left") : dy > 0 ? "down" : "up");
+  });
+
+  for (const button of ArcMoon.refs(ArcMoon.defineRef("pad"))) {
+    button.addEventListener("click", () => go(button.dataset.dir));
+  }
+
+  document.addEventListener("visibilitychange", () => document.hidden && pause());
+  reset();
+}$
+
+[Showcase = slug: "snake"]
+  [section = class: "guide"]
+    [p = class: "goal"]Eat the red dots to grow. Don't hit a wall or yourself. Every few dots, the game gets faster.[end]
+    [dl = class: "keys"]
+      [div][dt][Key]↑[end][Key]↓[end][Key]←[end][Key]→[end][end][dd]Move, or W A S D[end][end]
+      [div][dt][Key]Space[end][end][dd]Pause and go on[end][end]
+      [div][dt][Key]Enter[end][end][dd]Play again[end][end]
+      [div = class: "touch-hint"][dt]Swipe[end][dd]on the board, or use the arrows below it[end][end]
+    [end]
+  [end]
+
+  [section = class: "game", arcm-ref: "game", --cols: ${ settings.cols }$, --rows: ${ settings.rows }$]
+    [div = class: "hud"]
+      [div = class: "stats"]
+        [Stat = label: "Score"]runtime ${ score() }$[end]
+        [Stat = label: "Best"]runtime ${ best() }$[end]
+        [Stat = label: "Level"]runtime ${ level() }$[end]
+        [Stat = label: "Length"]runtime ${ length() }$[end]
+      [end]
+      [div = class: "speed"]
+        [div = class: "speed-head"]
+          [span = class: "eyebrow"]Next level[end]
+          [span = class: "tick"]runtime ${ tick() }$ ms a move[end]
+        [end]
+        [div = class: "track"][div = class: "fill", css.width: runtime ${ progress() + "%" }$ !][end]
+      [end]
+      [div = class: "actions"]
+        [button = class: "primary", type: "button", onclick: runtime ${ () => toggle() }$]runtime ${ status() === "playing" ? "Pause" : action() }$[end]
+        [button = class: "ghost", type: "button", onclick: runtime ${ () => restart() }$]Restart[end]
+        [button = class: "ghost exit", type: "button", aria-label: "Exit full screen", onclick: runtime ${ () => leaveFull() }$]Exit full screen[end]
+      [end]
+    [end]
+
+    [div = class: "board", arcm-ref: "board", --hue: runtime ${ hue() }$, role: "img", aria-label: "Snake board"]
+      [for-each = ${ cells }$, as: "n"][div = class: "cell", arcm-shared-ref: "cell" !][end]
+      [div = class: "overlay", hidden: runtime ${ status() === "playing" }$]
+        [p = class: "headline"]runtime ${ headline() }$[end]
+        [p = class: "hint"]runtime ${ hint() }$[end]
+        [button = class: "primary", type: "button", onclick: runtime ${ () => play() }$]runtime ${ action() }$[end]
+      [end]
+    [end]
+
+    [div = class: "touch"][Pad!][end]
+  [end]
+[end]
+
+[style]
+  .guide {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px 40px;
+    padding: 20px var(--gutter);
+    border-bottom: 1px solid var(--line);
+    background: var(--surface);
+  }
+  .goal {
+    margin: 0;
+    max-width: 44ch;
+    color: var(--muted);
+  }
+  .keys {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 28px;
+    margin: 0;
+    font-size: 13px;
+    color: var(--muted);
+  }
+  .keys div {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .keys dt {
+    display: flex;
+    gap: 4px;
+  }
+  .keys dd {
+    margin: 0;
+  }
+  .touch-hint {
+    display: none !important;
+  }
+  .game {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 20px;
+    padding: 24px var(--gutter) 32px;
+  }
+  .game:fullscreen {
+    justify-content: center;
+    padding: 20px 28px;
+    background: var(--bg);
+    overflow: auto;
+  }
+  .game:fullscreen .board {
+    width: min(100%, calc((100vh - 150px) * var(--cols) / var(--rows)));
+  }
+  .game:fullscreen .hud {
+    width: min(100%, calc((100vh - 150px) * var(--cols) / var(--rows)));
+  }
+  .exit {
+    display: none;
+  }
+  .game:fullscreen .exit {
+    display: inline-flex;
+    align-items: center;
+  }
+  .hud {
+    width: 100%;
+    display: grid;
+    grid-template-columns: auto minmax(160px, 1fr) auto;
+    align-items: center;
+    gap: 24px;
+  }
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(88px, 1fr));
+    gap: 8px;
+  }
+  .speed-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 8px;
+  }
+  .tick {
+    font: 12px var(--mono);
+    color: var(--faint);
+  }
+  .track {
+    height: 6px;
+    background: var(--sunken);
+    border: 1px solid var(--line);
+    border-radius: 99px;
+    overflow: hidden;
+  }
+  .fill {
+    height: 100%;
+    width: 0;
+    background: var(--accent);
+    transition: width 0.25s;
+  }
+  .actions {
+    display: flex;
+    gap: 8px;
+  }
+  .primary,
+  .ghost {
+    height: 38px;
+    padding: 0 18px;
+    font: 500 14px/1 var(--sans);
+    border-radius: 7px;
+    cursor: pointer;
+    transition: filter 0.15s, border-color 0.15s;
+  }
+  .primary {
+    min-width: 108px;
+    color: var(--on-accent);
+    background: var(--accent);
+    border: 1px solid var(--accent);
+  }
+  .primary:hover {
+    filter: brightness(1.1);
+  }
+  .ghost {
+    color: var(--ink);
+    background: var(--surface);
+    border: 1px solid var(--line);
+  }
+  .ghost:hover {
+    border-color: var(--line-strong);
+  }
+  .board {
+    position: relative;
+    width: 100%;
+    aspect-ratio: var(--cols) / var(--rows);
+    display: grid;
+    grid-template-columns: repeat(var(--cols), 1fr);
+    grid-template-rows: repeat(var(--rows), 1fr);
+    gap: 2px;
+    padding: 8px;
+    background: var(--sunken);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    touch-action: none;
+    user-select: none;
+  }
+  .cell {
+    border-radius: 3px;
+    background: color-mix(in srgb, var(--line) 45%, transparent);
+    transition: background 0.08s;
+  }
+  .cell[data-kind="body"] {
+    background: hsl(var(--hue) 62% 52%);
+  }
+  .cell[data-kind="head"] {
+    background: hsl(var(--hue) 70% 38%);
+    border-radius: 5px;
+  }
+  .cell[data-kind="crash"] {
+    background: var(--bad);
+    border-radius: 5px;
+  }
+  .cell[data-kind="food"] {
+    background: radial-gradient(circle, var(--bad) 0 55%, transparent 58%);
+    animation: pulse 1.1s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    50% { transform: scale(0.75); }
+  }
+  .overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 24px;
+    text-align: center;
+    background: color-mix(in srgb, var(--bg) 78%, transparent);
+    backdrop-filter: blur(3px);
+    border-radius: 10px;
+  }
+  .overlay[hidden] {
+    display: none;
+  }
+  .headline {
+    margin: 0;
+    font: 300 44px/1.1 var(--serif);
+    letter-spacing: -0.02em;
+  }
+  .hint {
+    margin: 0 0 14px;
+    max-width: 34ch;
+    color: var(--muted);
+  }
+  .touch {
+    display: none;
+  }
+  @media (max-width: 900px) {
+    .hud {
+      grid-template-columns: 1fr auto;
+      gap: 16px;
+    }
+    .stats {
+      grid-column: 1 / -1;
+      grid-template-columns: repeat(4, 1fr);
+    }
+  }
+  @media (max-width: 560px) {
+    .hud {
+      grid-template-columns: 1fr;
+    }
+    .actions .primary {
+      flex: 1;
+    }
+    .headline {
+      font-size: 30px;
+    }
+    .hint {
+      margin-bottom: 8px;
+      font-size: 13px;
+    }
+    .overlay {
+      padding: 12px;
+    }
+    .game {
+      padding: 16px 12px 24px;
+    }
+  }
+  @media (pointer: coarse) {
+    .touch {
+      display: block;
+    }
+    .touch-hint {
+      display: flex !important;
+    }
+  }
+[end]

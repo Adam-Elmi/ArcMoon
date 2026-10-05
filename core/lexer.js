@@ -213,6 +213,11 @@ export default function lexer(src, filename = "anonymous") {
 		let depth = 0;
 		let str = null;
 		let closed = false;
+		// ###################
+		// A template literal can hold ${ … } with more code (and template literals) inside:
+		// each open ${ remembers its brace depth, and its } goes back into the template
+		// ###################
+		const templates = [];
 
 		while (j < src.length) {
 			const c = src[j];
@@ -220,6 +225,13 @@ export default function lexer(src, filename = "anonymous") {
 
 			if (str) {
 				if (c === "\\") {
+					j += 2;
+					continue;
+				}
+				if (str === "`" && c === "$" && n === "{") {
+					str = null;
+					templates.push(depth);
+					depth++;
 					j += 2;
 					continue;
 				}
@@ -250,7 +262,13 @@ export default function lexer(src, filename = "anonymous") {
 			}
 			if (c === "\"" || c === "'" || c === "`") str = c;
 			else if (c === "{") depth++;
-			else if (c === "}") depth--;
+			else if (c === "}") {
+				depth--;
+				if (templates.length && depth === templates.at(-1)) {
+					templates.pop();
+					str = "`";
+				}
+			}
 			j++;
 		}
 

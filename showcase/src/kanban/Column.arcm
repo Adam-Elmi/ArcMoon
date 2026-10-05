@@ -1,0 +1,89 @@
+# ###################
+# One board column: a header with its count (and limit), the card list, and an
+# Add button. The page fills it: lists, counts and buttons are shared refs with data-col
+# ###################
+${ const { col } = ArcMoon.props(); }$
+
+[section = class: "column", data-col: ${ col.id }$, arcm-shared-ref: "column", aria-label: ${ col.title }$]
+  [header = class: "head"]
+    [h2]${ col.title }$[end]
+    [span = class: "count", data-col: ${ col.id }$, arcm-shared-ref: "count"]0[end]
+    [span = class: "limit", hidden: ${ !col.limit }$]max ${ col.limit ?? "" }$[end]
+  [end]
+  [ol = class: "cards", data-col: ${ col.id }$, arcm-shared-ref: "list"][end]
+  [button = class: "add", type: "button", data-col: ${ col.id }$, arcm-shared-ref: "add"]+ Add a card[end]
+[end]
+
+[style]
+  .column {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    background: var(--sunken);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    transition: border-color 0.15s, background 0.15s;
+  }
+  .column[data-over] {
+    border-color: var(--bad);
+  }
+  .column[data-target] {
+    border-color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 6%, var(--sunken));
+  }
+  .head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 14px 14px 10px;
+  }
+  h2 {
+    margin: 0;
+    font: 600 14px/1.2 var(--sans);
+  }
+  .count {
+    padding: 2px 7px;
+    font: 11px/1.4 var(--mono);
+    color: var(--muted);
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 99px;
+  }
+  .column[data-over] .count {
+    color: #fff;
+    background: var(--bad);
+    border-color: var(--bad);
+  }
+  .limit {
+    margin-left: auto;
+    font: 11px var(--mono);
+    color: var(--faint);
+  }
+  .limit[hidden] {
+    display: none;
+  }
+  .cards {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-height: 60px;
+    margin: 0;
+    padding: 4px 10px 10px;
+    list-style: none;
+  }
+  .add {
+    margin: 0 10px 10px;
+    padding: 9px;
+    font: 500 13px var(--sans);
+    color: var(--muted);
+    text-align: left;
+    background: transparent;
+    border: 1px dashed var(--line-strong);
+    border-radius: 8px;
+    cursor: pointer;
+  }
+  .add:hover {
+    color: var(--ink);
+    border-color: var(--muted);
+  }
+[end]

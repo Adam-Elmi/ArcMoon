@@ -1,1 +1,0 @@
-This line was read from src/data/notes.txt with node:fs at build time.

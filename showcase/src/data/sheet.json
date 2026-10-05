@@ -1,0 +1,18 @@
+{
+	"cols": 8,
+	"rows": 16,
+	"cells": {
+		"A1": "Item", "B1": "Qty", "C1": "Price", "D1": "Total",
+		"A2": "Keyboard", "B2": "2", "C2": "49.5", "D2": "=B2*C2",
+		"A3": "Monitor", "B3": "1", "C3": "189", "D3": "=B3*C3",
+		"A4": "Cables", "B4": "6", "C4": "4.25", "D4": "=B4*C4",
+		"A5": "Desk lamp", "B5": "3", "C5": "22", "D5": "=B5*C5",
+		"A7": "Subtotal", "D7": "=SUM(D2:D5)",
+		"A8": "Tax %", "C8": "15", "D8": "=ROUND(D7*C8/100, 2)",
+		"A9": "Total", "D9": "=D7+D8",
+		"A11": "Items", "D11": "=SUM(B2:B5)",
+		"A12": "Average price", "D12": "=ROUND(AVG(C2:C5), 2)",
+		"A13": "Most expensive", "D13": "=MAX(C2:C5)",
+		"F1": "Try it", "F2": "Change B2 to 5", "F3": "Type =D9/D11 in F5", "F4": "Make a loop: =F6 in F6"
+	}
+}

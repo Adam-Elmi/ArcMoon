@@ -1,0 +1,114 @@
+/* ###################
+   Showcase site: colors, type and page frame (calm, editorial: cream, ink, one blue)
+   ################### */
+
+:root {
+	--bg: #f5f4f3;
+	--surface: #fbfaf9;
+	--sunken: #eceae6;
+	--ink: #1c1b19;
+	--muted: #5c574a;
+	--faint: #8f8a7d;
+	--line: #d9d6cf;
+	--line-strong: #b9b5ab;
+	--accent: #1348dc;
+	--accent-soft: #e4ebfc;
+	--on-accent: #ffffff;
+	--good: #0f7b47;
+	--bad: #c2391f;
+
+	--sans: "IBM Plex Sans", system-ui, -apple-system, sans-serif;
+	--serif: "IBM Plex Serif", Georgia, serif;
+	--mono: "IBM Plex Mono", ui-monospace, "SF Mono", monospace;
+
+	--frame: 1120px;
+	--gutter: clamp(16px, 4vw, 40px);
+	color-scheme: light;
+}
+
+/* ###################
+   Dark: the same palette, turned over
+   ################### */
+:root[data-theme="dark"] {
+	--bg: #121211;
+	--surface: #1a1918;
+	--sunken: #0c0c0b;
+	--ink: #ecebe8;
+	--muted: #a8a397;
+	--faint: #77736a;
+	--line: #2b2a27;
+	--line-strong: #45423c;
+	--accent: #7b9bff;
+	--accent-soft: #1b2342;
+	--on-accent: #0b1022;
+	--good: #4fc58a;
+	--bad: #ff7a5c;
+	color-scheme: dark;
+}
+
+*,
+*::before,
+*::after {
+	box-sizing: border-box;
+}
+
+html {
+	-webkit-text-size-adjust: 100%;
+}
+
+body {
+	margin: 0;
+	background: var(--bg);
+	color: var(--ink);
+	font-family: var(--sans);
+	font-size: 15px;
+	line-height: 1.6;
+	-webkit-font-smoothing: antialiased;
+}
+
+a {
+	color: inherit;
+}
+
+::selection {
+	background: var(--accent-soft);
+}
+
+:focus-visible {
+	outline: 2px solid var(--accent);
+	outline-offset: 2px;
+}
+
+/* ###################
+   The frame: a centered column with thin side rules
+   ################### */
+.frame {
+	max-width: var(--frame);
+	margin: 0 auto;
+	border-left: 1px solid var(--line);
+	border-right: 1px solid var(--line);
+	min-height: 100vh;
+	display: flex;
+	flex-direction: column;
+}
+
+.frame > main {
+	flex: 1;
+}
+
+.eyebrow {
+	font-family: var(--mono);
+	font-size: 12px;
+	letter-spacing: 0.08em;
+	text-transform: uppercase;
+	color: var(--muted);
+}
+
+@media (prefers-reduced-motion: reduce) {
+	*,
+	*::before,
+	*::after {
+		transition-duration: 0s !important;
+		animation-duration: 0s !important;
+	}
+}

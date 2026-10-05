@@ -1,0 +1,80 @@
+# ###################
+# One country card. Props: the country (c) and its bar width (share).
+# Everything is written at build time; data-info carries the details for the dialog
+# ###################
+${ const { c, share } = ArcMoon.props(); }$
+
+[article = class: "card", data-name: ${ c.search }$, data-region: ${ c.region }$, data-pop: ${ c.population ?? 0 }$, data-area: ${ c.area }$, data-code: ${ c.cca3 }$, data-info: ${ JSON.stringify(c) }$]
+  [img = class: "flag", src: ${ `https://flagcdn.com/${c.cca2}.svg` }$, alt: ${ `Flag of ${c.name}` }$, width: "48", height: "32", loading: "lazy" !]
+  [h2]${ c.name }$[end]
+  [p = class: "where"]${ c.capital || "No capital" }$ · ${ c.subregion || c.region }$[end]
+  [div = class: "people"]
+    [span = class: "pop"]${ c.populationText }$[end]
+    [span = class: "track"][span = class: "fill", css.width: ${ share + "%" }$ !][end]
+  [end]
+  [a = class: "open", href: ${ `#${c.cca3}` }$, aria-label: ${ `Details for ${c.name}` }$][end]
+[end]
+
+[style]
+  .card {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 18px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    transition: border-color 0.15s, transform 0.15s;
+  }
+  .card:hover {
+    border-color: var(--line-strong);
+    transform: translateY(-1px);
+  }
+  .flag {
+    width: 48px;
+    height: 32px;
+    margin-bottom: 6px;
+    object-fit: cover;
+    border-radius: 3px;
+    box-shadow: 0 0 0 1px var(--line);
+  }
+  h2 {
+    margin: 0;
+    font: 400 20px/1.2 var(--serif);
+  }
+  .where {
+    margin: 0;
+    font-size: 13px;
+    color: var(--muted);
+  }
+  .people {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: auto;
+    padding-top: 10px;
+  }
+  .pop {
+    min-width: 52px;
+    font: 12px var(--mono);
+    color: var(--muted);
+  }
+  .track {
+    flex: 1;
+    height: 4px;
+    background: var(--sunken);
+    border-radius: 99px;
+    overflow: hidden;
+  }
+  .fill {
+    display: block;
+    height: 100%;
+    background: var(--accent);
+  }
+  .open {
+    position: absolute;
+    inset: 0;
+    border-radius: 10px;
+  }
+[end]

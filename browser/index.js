@@ -69,6 +69,25 @@ const ask = (worker, request) =>
 // ###################
 // { raw } HTML becomes real elements
 // ###################
+// ###################
+// <template>: hast-util-to-dom ignores "content", so the inside goes in as children,
+// then moves into each template's real content once the DOM is built
+// ###################
+const templatesToChildren = (node) => {
+	if (node.content) {
+		node.children = node.content.children;
+		delete node.content;
+	}
+	for (const c of node.children ?? []) templatesToChildren(c);
+};
+
+const fillTemplates = (root) => {
+	for (const t of root.querySelectorAll("template")) {
+		fillTemplates(t);
+		while (t.firstChild) t.content.appendChild(t.firstChild);
+	}
+};
+
 const parseRaw = (node) => {
 	if (!node.children) return;
 	node.children = node.children.flatMap((c) => {
@@ -165,9 +184,11 @@ export default class ArcMoon {
 		const { result, prepared } = await this.#build();
 		const { toModuleURL = blobURL } = this.options;
 		const tree = toHast(result.tree);
+		templatesToChildren(tree);
 		parseRaw(tree);
 		const fragment = toDom(tree, { fragment: true, document });
 		setExact(fragment, tree);
+		fillTemplates(fragment);
 
 		if (prepared) {
 			// ###################
