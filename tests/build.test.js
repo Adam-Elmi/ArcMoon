@@ -6,6 +6,7 @@ import { describe, it, expect } from "vitest";
 import { fileURLToPath } from "node:url";
 import { relative, sep } from "node:path";
 import { JSDOM } from "jsdom";
+import { SourceMapConsumer } from "source-map-js";
 import ArcMoon, { buildPages } from "../node/compiler.js";
 
 const FIXTURES = fileURLToPath(new URL("./fixtures", import.meta.url));
@@ -66,5 +67,36 @@ describe("build() and buildPages()", () => {
 	it("uses base for script URLs when given", async () => {
 		const { html } = await new ArcMoon({ src: `runtime \${ window.__n = 1; }\$`, cwd: FIXTURES, name: "x" }).build({ outDir: "out", base: "/static" });
 		expect(html).toMatch(/src="\/static\/assets\/x-[A-Z0-9]+\.js"/);
+	});
+});
+
+describe("dev builds", () => {
+	const src = `[h1]Hi[end]\nruntime \${\n  const counter = 1;\n  function explode() {\n    return counter.missing.value;\n  }\n}\$\n[p]runtime \${ counter + explode() }\$[end]`;
+	// ###################
+	// Where a piece of the output JS comes from, by its inline source map
+	// ###################
+	const origin = (js, word) => {
+		const map = JSON.parse(Buffer.from(/base64,(\S+)/.exec(js)[1], "base64").toString());
+		const lines = js.split("\n");
+		const line = lines.findLastIndex((l) => l.includes(word));
+		const { source, line: at, column } = new SourceMapConsumer(map).originalPositionFor({ line: line + 1, column: lines[line].indexOf(word) });
+		return `${source}:${at}:${column + 1}`;
+	};
+
+	it("keeps names and maps the JS back to .arcm lines", async () => {
+		const html = await am(src).compile();
+		expect(html).not.toContain("sourceMappingURL");
+		expect(html).not.toContain("explode");
+
+		const dev = await new ArcMoon({ src, cwd: FIXTURES, dev: true }).compile();
+		const js = /<script type="module">([\s\S]*)<\/script>/.exec(dev)[1];
+		expect(js).toContain("function explode()");
+		expect(origin(js, "counter.missing")).toBe("anonymous.arcm:5:12");
+		expect(origin(js, "explode()")).toBe("anonymous.arcm:8:25");
+	});
+
+	it("maps separate JS files too", async () => {
+		const { files } = await buildPages([{ src, name: "x", filename: `${FIXTURES}/pages/x.arcm` }], { cwd: FIXTURES, outDir: "out", dev: true });
+		expect(origin(files[0].contents, "counter.missing")).toBe("pages/x.arcm:5:12");
 	});
 });

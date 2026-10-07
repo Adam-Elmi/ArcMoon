@@ -4,6 +4,7 @@
 
 import postcss from "postcss";
 import selectorParser from "postcss-selector-parser";
+import { selectAll } from "css-select";
 
 export class StyleError extends Error {
 	constructor(message, source, position) {
@@ -104,6 +105,129 @@ export const inStyle = (position, line, character) =>
 const cssText = (el) => el.children.map((c) => (c.type === "text" || c.type === "raw" ? c.value : "")).join("");
 
 // ###################
+// Page styles are global. A rule that styles the page's own elements and also
+// elements written by a component (layout, card…) is most likely a name clash:
+// warn, unless it uses :global() on purpose or only names elements (body, h1)
+// ###################
+const attrValue = (el, name) => {
+	const v = el.properties?.[name] ?? el.properties?.[Object.keys(el.properties ?? {}).find((k) => k.toLowerCase() === name)];
+	if (v === null || v === undefined || v === false || typeof v === "object") return undefined;
+	return v === true ? "" : String(v);
+};
+
+const treeAdapter = (parents) => {
+	const isTag = (n) => n?.type === "element";
+	const children = (n) => n.children ?? [];
+	const text = (n) => (n.type === "text" ? n.value : children(n).map(text).join(""));
+	const inside = (outer, n) => {
+		for (let p = parents.get(n); p; p = parents.get(p)) if (p === outer) return true;
+		return false;
+	};
+	const findAll = (test, nodes, out = []) => {
+		for (const n of nodes) {
+			if (!isTag(n)) continue;
+			if (test(n)) out.push(n);
+			findAll(test, children(n), out);
+		}
+		return out;
+	};
+	return {
+		isTag,
+		getChildren: children,
+		getParent: (n) => parents.get(n) ?? null,
+		getSiblings: (n) => (parents.get(n) ? children(parents.get(n)) : [n]),
+		getName: (n) => n.tagName.toLowerCase(),
+		getAttributeValue: attrValue,
+		hasAttrib: (n, name) => attrValue(n, name) !== undefined,
+		getText: text,
+		removeSubsets: (nodes) => nodes.filter((n, i) => nodes.indexOf(n) === i && !nodes.some((o) => o !== n && inside(o, n))),
+		existsOne: (test, nodes) => findAll(test, nodes).length > 0,
+		findAll: (test, nodes) => findAll(test, nodes),
+		findOne: (test, nodes) => findAll(test, nodes)[0] ?? null
+	};
+};
+
+// ###################
+// Only the parts that change what an element is: hover, focus and ::before don't
+// ###################
+const KEEP_PSEUDO = new Set([":not", ":is", ":where", ":has", ":first-child", ":last-child", ":nth-child", ":nth-of-type", ":only-child", ":empty"]);
+const forMatching = (selector) =>
+	selectorParser((sels) => sels.walkPseudos((p) => { if (!KEEP_PSEUDO.has(p.value)) p.remove(); })).processSync(selector);
+
+const namesSomething = (selector) => {
+	let named = false;
+	selectorParser((sels) => sels.each((sel) => {
+		const last = [];
+		sel.each((n) => (n.type === "combinator" ? (last.length = 0) : last.push(n)));
+		if (last.some((n) => n.type === "class" || n.type === "id" || n.type === "attribute")) named = true;
+	})).processSync(selector);
+	return named;
+};
+
+const fileName = (id) => String(id).split(/[\\/]/).pop();
+
+const pageLeaks = (tree, pageStyles, page) => {
+	const warnings = [];
+	const parents = new Map();
+	const link = (node) => {
+		for (const c of node.children ?? []) {
+			parents.set(c, node);
+			link(c);
+		}
+	};
+	link(tree);
+	const adapter = treeAdapter(parents);
+	const roots = (tree.children ?? []).filter((n) => n.type === "element");
+	const seen = new Set();
+	for (const node of pageStyles) {
+		let root;
+		try {
+			root = postcss.parse(cssText(node));
+		} catch {
+			continue;
+		}
+		root.walkRules((rule) => {
+			if (rule.parent?.type === "atrule" && /keyframes$/i.test(rule.parent.name)) return;
+			for (const selector of rule.selectors) {
+				if (selector.includes(":global") || seen.has(selector) || !namesSomething(selector)) continue;
+				let found;
+				try {
+					found = selectAll(forMatching(selector), roots, { adapter });
+				} catch {
+					continue;
+				}
+				const others = [...new Set(found.map((el) => el.data?.source).filter((s) => s && s !== page))];
+				if (!others.length || !found.some((el) => el.data?.source === page)) continue;
+				seen.add(selector);
+				warnings.push({
+					source: page,
+					position: inStyle(node.data?.position, rule.source?.start?.line ?? 1, (rule.source?.start?.column ?? 1) - 1),
+					message: `"${selector}" in the page's [style] also styles elements in ${others.map(fileName).join(", ")}. Page styles are global: use a class only this page uses, or write :global(${selector}) if that's on purpose`
+				});
+			}
+		});
+	}
+	return warnings;
+};
+
+// ###################
+// :global(…) in a page's [style] only marks a rule as meant for the whole page
+// ###################
+const unwrapGlobal = (node) => {
+	if (!node.children.every((c) => c.type === "text" || c.type === "raw")) return;
+	const text = cssText(node);
+	if (!text.includes(":global(")) return;
+	const root = postcss.parse(text);
+	root.walkRules((rule) => {
+		if (!rule.selector.includes(":global(")) return;
+		rule.selector = selectorParser((sels) => sels.walkPseudos((p) => {
+			if (p.value === ":global") p.replaceWith(...p.nodes.flatMap((inner) => inner.nodes.map((n) => n.clone())));
+		})).processSync(rule.selector);
+	});
+	node.children = [{ type: "text", value: root.toString() }];
+};
+
+// ###################
 // Scope styles in components (every module but the page), then move them into <head>
 // Changes the tree in place; returns warnings
 // ###################
@@ -121,11 +245,13 @@ export default function scopeStyles(tree, graph) {
 	// 1. Take component [style]s out of the tree, first use's CSS wins
 	// ###################
 	const scoped = new Set();
+	const pageStyles = [];
 	const collect = (children) => {
 		for (let k = 0; k < children.length; k++) {
 			const node = children[k];
 			if (node.type !== "element") continue;
 			const source = node.data?.source;
+			if (isStyle(node) && source === graph.entry && !node.data?.directives?.["arcm-raw"]) pageStyles.push(node);
 			if (isStyle(node) && source && source !== graph.entry) {
 				children.splice(k--, 1);
 				scoped.add(source);
@@ -146,6 +272,8 @@ export default function scopeStyles(tree, graph) {
 		}
 	};
 	collect(tree.children);
+	warnings.push(...pageLeaks(tree, pageStyles, graph.entry));
+	pageStyles.forEach(unwrapGlobal);
 	if (!scoped.size) return warnings;
 
 	// ###################

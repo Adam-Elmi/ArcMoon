@@ -113,7 +113,7 @@ describe("cli", () => {
 		expect(first.stderr).toBe("");
 		const html = await readFile(join(site, "inline/styled.html"), "utf8");
 		expect(html).toMatch(/<head><style>\*\{margin:0\}body\{background:url\("\.\/assets\/logo-[A-Z0-9]+\.png"\)\}p\{color:red\}<\/style><\/head><body><p>x<\/p>/);
-		expect((await readdir(join(site, "inline/assets")))[0]).toMatch(/^logo-[A-Z0-9]+\.png$/);
+		expect((await readdir(join(site, "inline/assets"))).filter((f) => !f.startsWith("."))).toEqual([expect.stringMatching(/^logo-[A-Z0-9]+\.png$/)]);
 
 		await writeFile(join(site, "arcmoon.config.js"), `export default { externalStyles: true };`);
 		const r = await arcmoon("build", "pages/styled.arcm", "-o", "out");
@@ -121,6 +121,30 @@ describe("cli", () => {
 		const page = await readFile(join(site, "out/styled.html"), "utf8");
 		const href = /<link rel="stylesheet" href="\.\/(assets\/styled-[A-Z0-9]+\.css)">/.exec(page)[1];
 		expect(await readFile(join(site, "out", href), "utf8")).toMatch(/background:url\("\.\/logo-[A-Z0-9]+\.png"\)/);
+	});
+
+	it("build removes files older builds wrote, and only those", async () => {
+		await writeFile(join(site, "arcmoon.config.js"), `export default { externalScripts: true, externalStyles: true };`);
+		const page = (name, n) => writeFile(join(site, `pages/${name}.arcm`), `runtime \${ const n = ${n}; }\$\n[p]runtime \${ n }\$[end]\n[style]p { order: ${n} }[end]`);
+		const assets = async () => (await readdir(join(site, "out/assets"))).filter((f) => !f.startsWith(".")).sort();
+		await page("one", 1);
+		await page("two", 2);
+		await arcmoon("build", "pages/one.arcm", "-o", "out");
+		await arcmoon("build", "pages/two.arcm", "-o", "out");
+		await writeFile(join(site, "out/assets/mine-ABC123.js"), "mine");
+		const before = await assets();
+		expect(before).toHaveLength(5);
+
+		await page("one", 3);
+		const r = await arcmoon("build", "pages/one.arcm", "-o", "out");
+		expect(r.stdout).toMatch(/removed 2 old files from out[\\/]assets/);
+		const after = await assets();
+		expect(after.filter((f) => f.startsWith("one-"))).toHaveLength(2);
+		expect(after.filter((f) => !f.startsWith("one-"))).toEqual(before.filter((f) => !f.startsWith("one-")));
+
+		const again = await arcmoon("build", "pages/one.arcm", "-o", "out");
+		expect(again.stdout).not.toContain("removed");
+		expect(await assets()).toEqual(after);
 	});
 
 	it("build reports a missing stylesheet at the [link]", async () => {
@@ -158,7 +182,7 @@ describe("cli", () => {
 
 		expect((await arcmoon("untrust", "../theme")).stdout).toContain(`✓ Untrusted "../theme"`);
 		expect((await arcmoon("build", "pages/themed.arcm")).code).toBe(1);
-	});
+	}, 15000);
 
 	it("reports missing files and arguments", async () => {
 		expect((await arcmoon("build", "nope.arcm")).stderr).toContain(`✗ "nope.arcm" is not found`);

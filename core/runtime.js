@@ -122,6 +122,54 @@ export const unsendable = (v, name) => {
 // Prepare the page's runtime code; changes the tree in place
 // hasCode is false when the page has no runtime code
 // ###################
+// ###################
+// Inline source map: each runtime line points at its line in the .arcm file
+// A mapping at every word, so columns stay right too
+// ###################
+const B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+const vlq = (n) => {
+	let v = n < 0 ? (-n << 1) | 1 : n << 1;
+	let out = "";
+	do {
+		let digit = v & 31;
+		v >>>= 5;
+		if (v) digit |= 32;
+		out += B64[digit];
+	} while (v);
+	return out;
+};
+const base64 = (text) => {
+	let bin = "";
+	for (const byte of new TextEncoder().encode(text)) bin += String.fromCharCode(byte);
+	return btoa(bin);
+};
+
+const sourceMap = (lines, mapped, id, src) => {
+	const mappings = [];
+	let last = { line: 0, col: 0 };
+	for (const [index, block] of lines.entries()) {
+		const m = mapped.find((x) => x.line === index);
+		for (const [k, text] of block.split("\n").entries()) {
+			const segs = [];
+			if (m) {
+				const offset = k === 0 ? m.column : 0;
+				const line = m.start.line + k;
+				const shift = (k === 0 ? m.start.character : 0) - offset;
+				let gen = 0;
+				for (const w of text.matchAll(/[\w$]+|\S/g)) {
+					if (w.index < offset) continue;
+					segs.push(vlq(w.index - gen) + vlq(0) + vlq(line - last.line) + vlq(shift + w.index - last.col));
+					gen = w.index;
+					last = { line, col: shift + w.index };
+				}
+			}
+			mappings.push(segs.join(","));
+		}
+	}
+	const json = { version: 3, sources: [id], ...(src ? { sourcesContent: [src] } : {}), names: [], mappings: mappings.join(";") };
+	return `//# sourceMappingURL=data:application/json;charset=utf-8;base64,${base64(JSON.stringify(json))}`;
+};
+
 export default function prepareRuntime(result) {
 	const { tree, uses, modules } = result;
 	const warnings = [];
@@ -404,27 +452,34 @@ export default function prepareRuntime(result) {
 
 	// ###################
 	// 3. The generated function for one file
+	// map: true adds a source map back to the .arcm file (dev builds)
 	// ###################
-	const sourceOf = (f) => {
+	const sourceOf = (f, { map = false, name = f.id } = {}) => {
 		const { hoisted, bodies, lives, values } = f.parsed;
 		const lines = [...hoisted];
+		const mapped = [];
+		const add = (code, marker, column = 0) => {
+			const start = marker.codeStart ?? marker.range?.start;
+			if (start) mapped.push({ line: lines.length, start, column });
+			lines.push(code);
+		};
 		if (lives.length) lines.push(`import { effect as __effect } from "arcmoon/reactive";`);
 		lines.push("export default function (ArcMoon, __values, __live, __setAttr) {");
 		if (values.length) lines.push(`const { ${values.join(", ")} } = __values;`);
-		for (const b of bodies) lines.push(b.code);
+		for (const b of bodies) add(b.code, b.marker);
 		for (const l of lives) {
 			const expr = l.marker.code;
 			const first = perUse.flatMap((u) => u.live.get(l.key)?.targets ?? [])[0];
-			if (first?.text) {
-				lines.push(`__live(${l.index}, (__node) => __effect(() => { __node.data = String((${expr}) ?? ""); }));`);
-			} else if (/^on/i.test(first.attr)) {
-				lines.push(`__live(${l.index}, (__el) => { __el.addEventListener(${JSON.stringify(first.attr.slice(2).toLowerCase())}, (${expr})); });`);
-			} else {
-				lines.push(`__live(${l.index}, (__el) => __effect(() => { __setAttr(__el, ${JSON.stringify(first.attr)}, (${expr})); }));`);
-			}
+			let head;
+			if (first?.text) head = `__live(${l.index}, (__node) => __effect(() => { __node.data = String((`;
+			else if (/^on/i.test(first.attr)) head = `__live(${l.index}, (__el) => { __el.addEventListener(${JSON.stringify(first.attr.slice(2).toLowerCase())}, (`;
+			else head = `__live(${l.index}, (__el) => __effect(() => { __setAttr(__el, ${JSON.stringify(first.attr)}, (`;
+			const tail = first?.text ? `) ?? ""); }));` : /^on/i.test(first.attr) ? `)); });` : `)); }));`;
+			add(head + expr + tail, l.marker, head.length);
 		}
 		lines.push("}");
-		return lines.join("\n");
+		const code = lines.join("\n");
+		return map ? code + "\n" + sourceMap(lines, mapped, name, modules.get(f.id)?.src) : code;
 	};
 
 	// ###################

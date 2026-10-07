@@ -1,0 +1,71 @@
+<!doctype html>
+<!-- ###################
+     Demo: npm run build, then open this file (or serve the folder)
+     ################### -->
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>arcmoon-highlight demo</title>
+	<style>
+		body { margin: 0; padding: 24px; background: #16161a; color: #e8eaf0; font: 15px/1.5 system-ui, sans-serif; }
+		h2 { font-size: 14px; font-weight: 500; color: #8b8fa8; margin: 24px 0 8px; }
+		pre, #editor { margin: 0; padding: 16px; background: #1e1e24; border-radius: 8px; font: 14px/1.6 ui-monospace, "SF Mono", monospace; overflow: auto; }
+		#editor { padding: 0; height: 560px; }
+		#errors { min-height: 1.5em; margin: 8px 0 0; padding: 0; list-style: none; font: 13px/1.6 ui-monospace, monospace; }
+		#errors .ArcMoon b { color: #f87171; }
+		#errors .JavaScript b { color: #f59e0b; }
+		#errors li { cursor: pointer; }
+		#errors li:hover { background: #1e1e24; }
+	</style>
+</head>
+<body>
+	<h2>staticHighlight, with errors: diagnose(sample) (hover an underline)</h2>
+	<pre id="static"></pre>
+	<h2>attachHighlighter</h2>
+	<div id="editor"></div>
+	<ul id="errors"></ul>
+	<script src="../dist/arcmoon-highlight.full.js"></script>
+	<script>
+		const sample = `# A card with a live counter
+[import = Card: "./Card.arcm" !]
+
+\${
+  const title = "Counter";
+}$
+
+runtime \${
+  import { signal } from "arcmoon/reactive";
+  const count = signal(0);
+  const add = () => count(count() + 1);
+}$
+
+[Card = title: \${ title }$]
+  [p = class: "count"]Clicked runtime \${ count() }$ times[end]
+  [button = onclick: runtime \${ add }$, disabled: false]Add one[end]
+[end:Card]
+
+# Try the mistakes below: each one is found where it is
+\${ cosnt total = (1 + 2; }$
+[p]runtime \${ let x = 1 }$[end]
+runtime \${ import fs from "node:fs"; }$`;
+
+		const { staticHighlight, diagnose, attachHighlighter } = ArcMoonHighlight;
+		document.getElementById("static").innerHTML = staticHighlight(sample, { errors: diagnose(sample) });
+		const list = document.getElementById("errors");
+		const editor = attachHighlighter(document.getElementById("editor"), {
+			onDiagnostics: (errors) => {
+				list.replaceChildren(...errors.map((e) => {
+					const item = document.createElement("li");
+					item.className = e.source;
+					item.innerHTML = `<b>${e.source}</b> ${e.line}:${e.column} `;
+					item.append(e.message);
+					item.onclick = () => editor.goTo(e);
+					return item;
+				}));
+			}
+		});
+		editor.setValue(sample);
+	</script>
+</body>
+</html>

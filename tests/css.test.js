@@ -203,3 +203,35 @@ describe("css. props", () => {
 		expect(html).toBe(`<p style="colr: red; -webkit-line-clamp: 2; --y: 3; font-size: 2rem"></p>`);
 	});
 });
+
+describe("page [style] that reaches into components", () => {
+	const warnings = async (src) => {
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+		try {
+			const html = await compile(src);
+			return { html, warnings: warn.mock.calls.map((c) => c[0].replace(/^.*anonymous\.arcm:/, "")) };
+		} finally {
+			warn.mockRestore();
+		}
+	};
+	const page = (css, body = `[div = class: "bar"]x[end]`) => `[import = Bar: "./Bar.arcm" !]\n[Bar]${body}[end]\n[style]\n  ${css}\n[end]`;
+
+	it("warns when a page class also styles a component's elements", async () => {
+		const { warnings: w } = await warnings(page(`.bar:hover { color: red; }`));
+		expect(w).toEqual([
+			`4:3  ".bar:hover" in the page's [style] also styles elements in Bar.arcm. Page styles are global: use a class only this page uses, or write :global(.bar:hover) if that's on purpose`
+		]);
+	});
+
+	it("stays quiet for element names, page-only classes and classes only components use", async () => {
+		expect((await warnings(page(`h1, div { margin: 0; }`))).warnings).toEqual([]);
+		expect((await warnings(page(`.mine { color: red; }`, `[p = class: "mine"]x[end]`))).warnings).toEqual([]);
+		expect((await warnings(page(`.bar { color: red; }`, `[p]x[end]`))).warnings).toEqual([]);
+	});
+
+	it("takes :global() as on purpose and writes plain CSS", async () => {
+		const { html, warnings: w } = await warnings(page(`:global(.bar) h1, .x :global(.bar) { color: red; }`));
+		expect(w).toEqual([]);
+		expect(html).toContain(`<style>.bar h1,.x .bar{color:red}</style>`);
+	});
+});

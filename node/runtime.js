@@ -27,7 +27,7 @@ const scriptPath = (script, cwd) =>
 // ###################
 // One esbuild plugin for any number of pages; pages is keyed by page index
 // ###################
-const pluginFor = (pages, { allowed, version, cwd }) => {
+const pluginFor = (pages, { allowed, version, cwd, dev }) => {
 	const allowedSet = new Set(allowed);
 	const checked = (a) =>
 		a.namespace === "arcm" ||
@@ -52,7 +52,7 @@ const pluginFor = (pages, { allowed, version, cwd }) => {
 			b.onLoad({ filter: /^arcm-file:/, namespace: "arcm" }, (a) => {
 				const [p, i] = a.path.slice("arcm-file:".length).split(":").map(Number);
 				const f = pages[p].prepared.files[i];
-				return { contents: pages[p].prepared.sourceOf(f), loader: "js", resolveDir: isAbsolute(f.id) ? dirname(f.id) : cwd };
+				return { contents: pages[p].prepared.sourceOf(f, { map: dev, name: isAbsolute(f.id) ? relative(cwd, f.id).split(sep).join("/") : f.id }), loader: "js", resolveDir: isAbsolute(f.id) ? dirname(f.id) : cwd };
 			});
 			b.onResolve({ filter: /^arcmoon\/reactive$/ }, () => ({ path: REACTIVE }));
 			b.onResolve({ filter: /^[^./]/ }, (a) => {
@@ -103,9 +103,10 @@ const checkScripts = (pages, cwd) => {
 
 // ###################
 // Inline: one page, one minified script string
+// dev: not minified, with a source map back to the .arcm files
 // ###################
 export default async function buildRuntime(result, options = {}) {
-	const { bundle: allowed = [], version = "0.0.0", cwd = process.cwd() } = options;
+	const { bundle: allowed = [], version = "0.0.0", cwd = process.cwd(), dev = false } = options;
 	const prepared = prepareRuntime(result);
 	if (!prepared.hasCode) return { js: null, warnings: prepared.warnings };
 
@@ -118,10 +119,11 @@ export default async function buildRuntime(result, options = {}) {
 			write: false,
 			format: "esm",
 			platform: "browser",
-			minify: true,
+			minify: !dev,
+			sourcemap: dev ? "inline" : false,
 			logLevel: "silent",
 			absWorkingDir: cwd,
-			plugins: [pluginFor(pages, { allowed, version, cwd })]
+			plugins: [pluginFor(pages, { allowed, version, cwd, dev })]
 		});
 		return { js: out.outputFiles[0].text.replace(/<\/script/gi, "<\\/script"), warnings: prepared.warnings };
 	} catch (err) {
@@ -134,7 +136,7 @@ export default async function buildRuntime(result, options = {}) {
 // pages: [{ name, prepared }] → { entries: Map(name → file path), files: [{ path, contents }] }
 // ###################
 export async function bundlePages(list, options = {}) {
-	const { bundle: allowed = [], version = "0.0.0", cwd = process.cwd(), outDir = cwd, assetsDir = "assets" } = options;
+	const { bundle: allowed = [], version = "0.0.0", cwd = process.cwd(), outDir = cwd, assetsDir = "assets", dev = false } = options;
 	const pages = {};
 	list.forEach((p, index) => {
 		if (p.prepared.hasCode) pages[index] = { ...p, index };
@@ -151,14 +153,15 @@ export async function bundlePages(list, options = {}) {
 			write: false,
 			format: "esm",
 			platform: "browser",
-			minify: true,
+			minify: !dev,
+			sourcemap: dev ? "inline" : false,
 			logLevel: "silent",
 			absWorkingDir: cwd,
 			outdir: resolve(outDir, assetsDir),
 			entryNames: "[name]-[hash]",
 			chunkNames: "chunks/[name]-[hash]",
 			metafile: true,
-			plugins: [pluginFor(pages, { allowed, version, cwd })]
+			plugins: [pluginFor(pages, { allowed, version, cwd, dev })]
 		});
 	} catch (err) {
 		throw toError(err, pages);

@@ -1,12 +1,10 @@
 {
   "name": "arcmoon",
-  "version": "1.0.0-beta.4",
+  "version": "1.0.0-rc.1",
   "description": "ArcMoon is a template language that compiles to web pages.",
   "keywords": [
     "template-language",
     "html",
-    "ssg",
-    "static-site-generator",
     "components",
     "signals",
     "reactivity",
@@ -32,7 +30,7 @@
     "node": ">=22.12"
   },
   "publishConfig": {
-    "tag": "beta"
+    "tag": "rc"
   },
   "type": "module",
   "dependencies": {
@@ -40,6 +38,7 @@
     "acorn": "^8.18.0",
     "alien-signals": "^3.2.1",
     "buffer": "^6.0.3",
+    "css-select": "^7.0.0",
     "esbuild": "^0.28.2",
     "events": "^3.3.0",
     "hast-util-from-html": "^2.0.3",

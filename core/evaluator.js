@@ -615,7 +615,7 @@ export default async function evaluate(graph, options = {}) {
 		const children = await run(graph.entry, pageProps, null, null);
 		const tree = { type: "root", children };
 		scopeStyles(tree, graph).forEach((w) => warn(w.source, w.position, w.message));
-		const modules = new Map([...compiled].map(([id, r]) => [id, { staticNames: r.staticNames, exportNames: r.exportNames, loopNames: r.loopNames }]));
+		const modules = new Map([...compiled].map(([id, r]) => [id, { staticNames: r.staticNames, exportNames: r.exportNames, loopNames: r.loopNames, src: graph.modules.get(id)?.src }]));
 		return { tree, uses, modules, warnings };
 	} catch (err) {
 		rethrow(err);

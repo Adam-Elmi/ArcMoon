@@ -1,0 +1,1 @@
+[nav = class: "bar"][h1]Site[end][slot!][end]

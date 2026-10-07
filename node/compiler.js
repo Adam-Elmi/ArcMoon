@@ -83,7 +83,8 @@ const urlOf = (file, name, { outDir, base }) => {
 
 // ###################
 // Many pages at once
-// shared: { outDir, assetsDir, base, bundle, cwd, externalScripts, externalStyles }
+// shared: { outDir, assetsDir, base, bundle, cwd, externalScripts, externalStyles, dev }
+//   dev: runtime JS not minified, with source maps to the .arcm files
 //   externalScripts (default true): JS as separate files with shared chunks, else inside each page
 //   externalStyles (default false): CSS as separate files, else a <style> in each page
 // → { pages: [{ name, html }], files: [{ path, contents }] }
@@ -93,7 +94,7 @@ export async function buildPages(list, shared = {}) {
 	const cwd = shared.cwd ?? process.cwd();
 	const outDir = resolve(cwd, shared.outDir ?? ".");
 	const assetsDir = shared.assetsDir ?? "assets";
-	const { externalScripts = true, externalStyles = false, bundle = [] } = shared;
+	const { externalScripts = true, externalStyles = false, bundle = [], dev = false } = shared;
 
 	const pages = [];
 	for (const options of list) {
@@ -106,7 +107,7 @@ export async function buildPages(list, shared = {}) {
 			page.prepared = prepareRuntime(result);
 			page.prepared.warnings.forEach((w) => onWarning(w));
 		} else {
-			const { js, warnings } = await buildRuntime(result, { bundle, version: pkg.version, cwd });
+			const { js, warnings } = await buildRuntime(result, { bundle, version: pkg.version, cwd, dev });
 			warnings.forEach((w) => onWarning(w));
 			page.js = js;
 		}
@@ -117,7 +118,7 @@ export async function buildPages(list, shared = {}) {
 	const sharedWarning = shared.onWarning ?? defaultWarning;
 	for (const { page, ...w } of styles.warnings) (page === null ? sharedWarning : pages[page].onWarning)(w);
 	const scripts = externalScripts
-		? await bundlePages(pages, { bundle, version: pkg.version, cwd, outDir, assetsDir })
+		? await bundlePages(pages, { bundle, version: pkg.version, cwd, outDir, assetsDir, dev })
 		: { entries: new Map(), files: [] };
 
 	return {
@@ -144,12 +145,12 @@ export default class ArcMoon {
 	// url() files in CSS are left as written (there is nowhere to copy them)
 	// ###################
 	async compile() {
-		const { bundle = [], cwd = process.cwd(), onWarning = defaultWarning } = this.options;
+		const { bundle = [], cwd = process.cwd(), onWarning = defaultWarning, dev = false } = this.options;
 		const result = await evaluatePage(this.options);
 		const { css, warnings: cssWarnings } = await bundleStyles([{ name: "page", pieces: collectStyles(result.tree) }], { cwd, copyAssets: false });
 		cssWarnings.forEach(({ page, ...w }) => onWarning(w));
 		if (css.has("page")) addStyle(result.tree, css.get("page"));
-		const { js, warnings } = await buildRuntime(result, { bundle, version: pkg.version, cwd });
+		const { js, warnings } = await buildRuntime(result, { bundle, version: pkg.version, cwd, dev });
 		warnings.forEach((w) => onWarning(w));
 		const tree = toHast(result.tree);
 		if (js) addScript(tree, js);
@@ -160,7 +161,7 @@ export default class ArcMoon {
 	// HTML plus files: { html, files: [{ path, contents }] }
 	// ###################
 	async build(shared = {}) {
-		const { pages, files } = await buildPages([this.options], { bundle: this.options.bundle, cwd: this.options.cwd, ...shared });
+		const { pages, files } = await buildPages([this.options], { bundle: this.options.bundle, cwd: this.options.cwd, dev: this.options.dev, ...shared });
 		return { html: pages[0].html, files };
 	}
 }

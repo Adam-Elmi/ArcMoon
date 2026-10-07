@@ -21,6 +21,7 @@ export function getHelp(unknownOption = true) {
 		"  build <file|dir>              Compile .arcm to .html (into outDir)",
 		"  build <file|dir> -o <dir>     Compile into <dir>",
 		"  build <file> -p               Print the HTML instead of writing it",
+		"  build <file|dir> --dev        Readable JS with source maps (for debugging)",
 		"  --lex <file>                  Print lexer tokens",
 		"  --parse <file>                Print the AST",
 		"",

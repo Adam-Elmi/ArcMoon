@@ -12,7 +12,7 @@
 
 <p align="center">ArcMoon is a template language. You write <code>.arcm</code> files, and ArcMoon builds them into web pages.</p>
 
-> **Beta.** ArcMoon works, but things may change before 1.0.
+> **Release candidate for 1.0.** This is what 1.0 will be, unless a bug is found. Install it with `npm install arcmoon@rc`.
 
 ## What is ArcMoon?
 
@@ -95,6 +95,14 @@ npm install arcmoon
 ```
 
 ArcMoon needs Node.js 22.12 or newer.
+
+## Versions
+
+ArcMoon follows [semver](https://semver.org). From 1.0, every 1.x release keeps working with your pages:
+
+- **Kept in 1.x:** the `.arcm` syntax, the `arcm-*` props, `css.` and `--` props, `ArcMoon.*` in `.arcm` files, `arcmoon/reactive`, the CLI commands and flags, the config keys, and the JavaScript API (`compile()`, `build()`, `buildPages()`, `render()`). A 1.x release can add to these, but never changes them.
+- **Can change in any release:** the exact bytes of the output (whitespace, minifying, file names), names ArcMoon makes for itself (`data-a-…`, `data-arcm-ref`), the text of errors and warnings, and `arcmoon/core`.
+- **Bug fixes:** if ArcMoon does something the docs don't say, fixing it is not a breaking change.
 
 ## License
 
