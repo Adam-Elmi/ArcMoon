@@ -19,6 +19,18 @@ export { CompilerError };
 const blobURL = (code) => URL.createObjectURL(new Blob([code], { type: "text/javascript" }));
 const HTML_OPTIONS = { allowDangerousHtml: true, characterReferences: { useNamedReferences: true } };
 
+// ###################
+// ArcMoon's browser code that compile() output imports. In dist/ it is built next to browser.js
+// (written as new URL("./runtime/…", import.meta.url), so bundlers copy it, like worker.js);
+// from source (tests) it is the runtime/ folder
+// ###################
+const runtimeFile = (name) => {
+	if (typeof __ARCM_DIST__ !== "undefined") {
+		return (name === "client" ? new URL("./runtime/client.js", import.meta.url) : new URL("./runtime/reactive.js", import.meta.url)).href;
+	}
+	return new URL(["..", "runtime", `${name}.js`].join("/"), import.meta.url).href;
+};
+
 let sharedWorker = null;
 let nextMessage = 0;
 let nextRender = 0;
@@ -167,18 +179,24 @@ export default class ArcMoon {
 
 	// ###################
 	// Module URLs for the runtime code of one page
+	// shared: use this window's copy of the client and arcmoon/reactive (render());
+	// else import ArcMoon's own files by URL, so the code runs in any window (compile())
 	// ###################
-	async #runtimeModules(prepared, dom) {
+	async #runtimeModules(prepared, dom, { shared = false } = {}) {
 		const { files = {}, baseUrl = null, packages = {}, toModuleURL = blobURL } = this.options;
-		globalThis.__arcmClient = { run };
-		globalThis.__arcmReactive = reactive;
-
-		const special = {
-			"arcmoon/reactive": toModuleURL(`const m = globalThis.__arcmReactive; export const { signal, computed, effect } = m;`)
-		};
+		let special;
+		let client;
+		if (shared) {
+			globalThis.__arcmClient = { run };
+			globalThis.__arcmReactive = reactive;
+			special = { "arcmoon/reactive": toModuleURL(`const m = globalThis.__arcmReactive; export const { signal, computed, effect } = m;`) };
+			client = toModuleURL(`export const run = (...a) => globalThis.__arcmClient.run(...a);`);
+		} else {
+			special = { "arcmoon/reactive": runtimeFile("reactive") };
+			client = runtimeFile("client");
+		}
 		const host = createHost({ files, baseUrl });
 		const loader = createLoader({ host, packages, toModuleURL, special, node: false });
-		const client = toModuleURL(`export const run = (...a) => globalThis.__arcmClient.run(...a);`);
 
 		const fileSpecs = [];
 		for (const f of prepared.files) {
@@ -204,7 +222,8 @@ export default class ArcMoon {
 	}
 
 	// ###################
-	// HTML string; runtime code is an inline script using blob: URLs of this page
+	// HTML string; runtime code is an inline script using blob: URLs of this page.
+	// It loads ArcMoon's client and arcmoon/reactive by URL, so it also runs in an iframe or a new tab
 	// ###################
 	async compile() {
 		const { result, prepared } = await this.#build();
@@ -246,7 +265,7 @@ export default class ArcMoon {
 			const key = `r${nextRender++}`;
 			globalThis.__arcmDom ??= {};
 			globalThis.__arcmDom[key] = { byRef: (id) => byRef.get(id) ?? [], liveComment: (id) => comments.get(id) };
-			const entry = toModuleURL(await this.#runtimeModules(prepared, `globalThis.__arcmDom[${JSON.stringify(key)}]`));
+			const entry = toModuleURL(await this.#runtimeModules(prepared, `globalThis.__arcmDom[${JSON.stringify(key)}]`, { shared: true }));
 
 			setTimeout(() => {
 				import(/* @vite-ignore */ entry).catch((err) => console.error("ArcMoon runtime error", err));

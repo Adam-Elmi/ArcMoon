@@ -194,6 +194,23 @@ describe("compile() in the browser", () => {
 		expect(html.match(/<script type="module">/g)).toHaveLength(1);
 		expect(html).toContain(`<p><!--arcm:t0--><!--/arcm--></p>`);
 	});
+
+	it("runs without the compiling window's globals, like in an iframe (B20)", async () => {
+		const html = await am({
+			src: `runtime \${\n  import { signal } from "arcmoon/reactive";\n  const count = signal(0);\n}\$\n[button = onclick: runtime \${ () => count(count() + 1) }\$]runtime \${ count() }\$[end]`
+		}).compile();
+		const script = /<script type="module">([\s\S]*?)<\/script>/.exec(html)[1];
+		document.body.innerHTML = html.replace(/<script[\s\S]*<\/script>/, "");
+		delete globalThis.__arcmReactive;
+		delete globalThis.__arcmClient;
+		await import(/* @vite-ignore */ toModuleURL(script));
+		await tick();
+		const button = document.querySelector("button");
+		button.click();
+		button.click();
+		expect(button.textContent).toBe("2");
+		expect(globalThis.__arcmClient).toBeUndefined();
+	});
 });
 
 describe("browser timeout", () => {

@@ -5,7 +5,7 @@
 <h1 align="center">ArcMoon</h1>
 
 <p align="center">
-  <a href="https://www.npmjs.com/package/arcmoon"><img src="https://img.shields.io/npm/v/arcmoon/beta?color=d9263f&label=npm" alt="npm version"></a>
+  <a href="https://www.npmjs.com/package/arcmoon"><img src="https://img.shields.io/npm/v/arcmoon?color=d9263f&label=npm" alt="npm version"></a>
   <img src="https://img.shields.io/badge/license-MIT-3b82f6" alt="MIT license">
   <img src="https://img.shields.io/badge/node-%3E%3D22.12-339933?logo=node.js&logoColor=white" alt="Node.js 22.12 or newer">
 </p>
