@@ -24,14 +24,47 @@ let nextMessage = 0;
 let nextRender = 0;
 
 // ###################
+// Workers ArcMoon starts say "ready" once loaded. Until then nothing is sent,
+// and no timeout runs. A worker passed in with the worker option is used as it is
+// ###################
+const START_LIMIT = 60000;
+const readiness = new WeakMap();
+
+const workerError = (message) => Object.assign(new Error(message), { name: "WorkerError" });
+
+const watchStart = (worker, url) => {
+	const ready = new Promise((resolve, reject) => {
+		const done = (error) => {
+			clearTimeout(timer);
+			worker.removeEventListener("message", onMessage);
+			worker.removeEventListener("error", onError);
+			if (!error) return resolve();
+			worker.terminate?.();
+			if (worker === sharedWorker) sharedWorker = null;
+			reject(error);
+		};
+		const onMessage = (event) => {
+			if (event.data?.ready) done(null);
+		};
+		const onError = (event) => done(workerError(`couldn't start ArcMoon's worker (${url})${event?.message ? `: ${event.message}` : ""}`));
+		const timer = setTimeout(() => done(workerError(`ArcMoon's worker (${url}) didn't start within ${START_LIMIT / 1000} s`)), START_LIMIT);
+		worker.addEventListener("message", onMessage);
+		worker.addEventListener("error", onError);
+	});
+	ready.catch(() => {});
+	readiness.set(worker, ready);
+	return worker;
+};
+
+// ###################
 // One worker for the page, started on first use. Browsers only start workers from the page's
 // own origin, so from a CDN it starts as a same-origin blob: file that imports the CDN's worker.js
 // ###################
 const startWorker = () => {
 	const url = new URL("./worker.js", import.meta.url);
-	if (typeof location === "undefined" || url.origin === location.origin) return new Worker(url, { type: "module" });
+	if (typeof location === "undefined" || url.origin === location.origin) return watchStart(new Worker(url, { type: "module" }), url.href);
 	const blob = new Blob([`import ${JSON.stringify(url.href)};`], { type: "text/javascript" });
-	return new Worker(URL.createObjectURL(blob), { type: "module" });
+	return watchStart(new Worker(URL.createObjectURL(blob), { type: "module" }), url.href);
 };
 
 const defaultWorker = () => {
@@ -41,10 +74,12 @@ const defaultWorker = () => {
 
 // ###################
 // A worker stuck in ${ }$ (while (true) {}) never answers: after the timeout (plus a little,
-// so the worker's own timeout can answer first) it is terminated, and the next compile starts a new one
+// so the worker's own timeout can answer first) it is terminated, and the next compile starts a new one.
+// The timeout starts once the worker is ready
 // ###################
-const ask = (worker, request) =>
-	new Promise((resolve, reject) => {
+const ask = async (worker, request) => {
+	await readiness.get(worker);
+	return new Promise((resolve, reject) => {
 		const id = nextMessage++;
 		let timer = null;
 		const onMessage = (event) => {
@@ -65,6 +100,7 @@ const ask = (worker, request) =>
 		}
 		worker.postMessage({ id, request });
 	});
+};
 
 // ###################
 // { raw } HTML becomes real elements

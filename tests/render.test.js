@@ -205,3 +205,72 @@ describe("browser timeout", () => {
 		expect(Date.now() - started).toBeLessThan(2000);
 	});
 });
+
+// ###################
+// A stand-in for the browser's Worker: holds messages until it has "loaded"
+// (after startMs), then says ready, like browser/worker.js. fail: it never loads
+// ###################
+describe("browser worker start (B19)", () => {
+	let workers;
+	const setup = async ({ startMs = 0, mode = "ok" } = {}) => {
+		workers = [];
+		class FakeWorker {
+			constructor() {
+				this.listeners = { message: new Set(), error: new Set() };
+				this.queue = [];
+				this.mode = setup.mode ?? mode;
+				workers.push(this);
+				setTimeout(() => {
+					if (this.mode === "fail") return this.emit("error", { message: "404 worker.js" });
+					this.loaded = true;
+					this.emit("message", { data: { ready: true } });
+					this.queue.splice(0).forEach((m) => this.postMessage(m));
+				}, startMs);
+			}
+			addEventListener(type, f) { this.listeners[type].add(f); }
+			removeEventListener(type, f) { this.listeners[type].delete(f); }
+			emit(type, event) { [...this.listeners[type]].forEach((f) => f(event)); }
+			terminate() { this.terminated = true; }
+			async postMessage(message) {
+				if (!this.loaded) return this.queue.push(message);
+				if (this.mode === "stuck") return;
+				const { id, request } = message;
+				let data;
+				try {
+					data = structuredClone({ id, ok: true, result: await compileInWorker(request, { toModuleURL }) });
+				} catch (err) {
+					data = { id, ok: false, error: { name: err.name, message: err.message } };
+				}
+				this.emit("message", { data });
+			}
+		}
+		vi.stubGlobal("Worker", FakeWorker);
+		URL.createObjectURL ??= () => "blob:arcmoon-test";
+		vi.resetModules();
+		return (await import("../browser/index.js")).default;
+	};
+	afterEach(() => {
+		vi.unstubAllGlobals();
+		delete setup.mode;
+	});
+
+	it("doesn't count a slow worker start as ${ }$ time", async () => {
+		const Fresh = await setup({ startMs: 900 });
+		expect(await new Fresh({ src: "[p]${ 1 + 1 }$[end]", timeout: 200 }).compile()).toBe("<p>2</p>");
+	});
+
+	it("still stops ${ }$ that never finishes, once the worker is ready", async () => {
+		const Fresh = await setup({ startMs: 50, mode: "stuck" });
+		await expect(new Fresh({ src: "${ while (true) {} }$", timeout: 200 }).compile()).rejects.toThrow(/\$\{ \}\$ code took longer than 200 ms and was stopped/);
+		expect(workers[0].terminated).toBe(true);
+	});
+
+	it("says when the worker can't start, and starts a new one next time", async () => {
+		const Fresh = await setup({ mode: "fail" });
+		await expect(new Fresh({ src: "[p]a[end]" }).compile()).rejects.toThrow(/couldn't start ArcMoon's worker \(.*worker\.js\): 404 worker\.js/);
+		expect(workers[0].terminated).toBe(true);
+		setup.mode = "ok";
+		expect(await new Fresh({ src: "[p]a[end]" }).compile()).toBe("<p>a</p>");
+		expect(workers).toHaveLength(2);
+	});
+});

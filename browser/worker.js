@@ -15,3 +15,8 @@ self.onmessage = async (event) => {
 		self.postMessage({ id, ok: false, error: { name: err?.name ?? "Error", message: err?.message ?? String(err) } });
 	}
 };
+
+// ###################
+// Loaded: the page starts its timeouts from here, so a slow download isn't counted as ${ }$ time
+// ###################
+self.postMessage({ ready: true });
