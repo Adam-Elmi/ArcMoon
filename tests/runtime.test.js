@@ -156,3 +156,50 @@ describe("runtime", () => {
 		await expect(compile(src)).rejects.toThrow(message);
 	});
 });
+
+describe("names inside functions and blocks (B17)", () => {
+	const run = async (src) => open(await compile(src)).defaultView;
+
+	it("sends an exported value that a parameter of the same name only hides inside its function", async () => {
+		const win = await run(`\${ export const who = "Ada"; }\$\n[p]a[end]\nruntime \${\n  const greet = (who) => \`Hi \${who}\`;\n  window.seen = [who, greet("Bo")];\n}\$`);
+		expect(win.seen).toEqual(["Ada", "Hi Bo"]);
+	});
+
+	it("stops the build when the outside name is not exported, at the real use", async () => {
+		await expect(compile(`\${ const who = "Ada"; }\$\n[p]a[end]\nruntime \${\n  const greet = (who) => who;\n  console.log(who);\n}\$`)).rejects.toThrow(
+			/anonymous\.arcm:5:15 {2}runtime code uses "who", which is not exported/
+		);
+	});
+
+	it("knows every inner scope: blocks, loops, catch, inner var, class names, defaults", async () => {
+		const win = await run(
+			`\${ export const a = 1, b = 2, c = 3, d = 4, e = 5, f = 6; }\$\n[p]x[end]\nruntime \${\n` +
+				`  { const a = 0; }\n` +
+				`  for (const b of [0]) {}\n` +
+				`  try { throw 0; } catch (c) {}\n` +
+				`  function inner() { var d = 0; return d; }\n` +
+				`  const K = class e { m() { return e; } };\n` +
+				`  const g = ({ x = f } = {}) => x;\n` +
+				`  window.seen = [a, b, c, d, e, g(), inner()];\n}\$`
+		);
+		expect(win.seen).toEqual([1, 2, 3, 4, 5, 6, 0]);
+	});
+
+	it("lets a top-level runtime name win over a build-time one", async () => {
+		const win = await run(`\${ const who = "build"; }\$\n[p]a[end]\nruntime \${ const who = "browser"; window.seen = who; }\$`);
+		expect(win.seen).toBe("browser");
+	});
+});
+
+describe("exported values used only in import() (B18)", () => {
+	it("sends the value", async () => {
+		const html = await compile(`\${ export const url = "./lib-b18.js"; }\$\n[p]a[end]\nruntime \${ window.load = () => import(url); }\$`);
+		expect(html).toContain(`"./lib-b18.js"`);
+	});
+
+	it("stops the build when the value is not exported", async () => {
+		await expect(compile(`\${ const url = "./lib.js"; }\$\n[p]a[end]\nruntime \${ import(url); }\$`)).rejects.toThrow(
+			/anonymous\.arcm:3:19 {2}runtime code uses "url", which is not exported/
+		);
+	});
+});
