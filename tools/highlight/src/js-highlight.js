@@ -68,7 +68,7 @@ export function jsKind(tokens, i) {
 const escapeHtml = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
 // ###################
-// classPrefix: "am-" gives class="am-js-keyword" instead of inline styles
+// classPrefix: "arcm-" gives class="arcm-js-keyword" instead of inline styles
 // ###################
 export function highlightJs(code, { classPrefix } = {}) {
 	const tokens = [...jsTokens(code)];

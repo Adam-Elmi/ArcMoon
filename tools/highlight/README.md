@@ -77,11 +77,11 @@ staticHighlight(src, {
 Inline colors can't follow a light / dark theme. With `classPrefix`, every token gets a class instead:
 
 ```js
-staticHighlight(src, { classPrefix: "am-" });
-// <span class="am-identifier">p</span> … <span class="am-js-keyword">const</span>
+staticHighlight(src, { classPrefix: "arcm-" });
+// <span class="arcm-identifier">p</span> … <span class="arcm-js-keyword">const</span>
 ```
 
-The class is the prefix plus the token type in lowercase with dashes (`END_KEYWORD` → `am-end-keyword`). JavaScript inside `${ }$` gets `am-js-keyword`, `am-js-call`, `am-js-key`, `am-js-property`, `am-js-string`, `am-js-number`, `am-js-regex`, `am-js-comment`, `am-js-operator` and `am-js-name`.
+The class is the prefix plus the token type in lowercase with dashes (`END_KEYWORD` → `arcm-end-keyword`). JavaScript inside `${ }$` gets `arcm-js-keyword`, `arcm-js-call`, `arcm-js-key`, `arcm-js-property`, `arcm-js-string`, `arcm-js-number`, `arcm-js-regex`, `arcm-js-comment`, `arcm-js-operator` and `arcm-js-name`.
 
 ### Errors in static code
 
@@ -97,7 +97,7 @@ const html = staticHighlight(src, { errors: diagnose(src) });
 
 - ArcMoon errors are underlined in rose, JavaScript errors in orange.
 - The list can be your own: `{ from, to, message, source? }` marks any part of the code, for example to point at something in a lesson.
-- With `classPrefix: "am-"`, an error is `<span class="am-error am-error-javascript" title="…">` (or `am-error-arcmoon`), so CSS draws it.
+- With `classPrefix: "arcm-"`, an error is `<span class="arcm-error arcm-error-javascript" title="…">` (or `arcm-error-arcmoon`), so CSS draws it.
 
 `diagnose` is a separate import so the static highlighter stays small: the checker (acorn) is only loaded when you use it.
 
@@ -134,6 +134,7 @@ editor.onUpdate((code) => console.log(code));
 | Option | Default | What it does |
 | --- | --- | --- |
 | `tokens`, `other`, `onToken` | | Colors, the same as `staticHighlight` |
+| `classPrefix` | | Class names instead of the default colors, the same as `staticHighlight`'s (`arcm-identifier`, `arcm-js-keyword`…), so one set of CSS rules colors both, in any theme |
 | `caretColor` | `"#e8eaf0"` | Cursor color |
 | `showLineNumbers` | `true` | Line numbers on the left |
 | `showErrors` | `true` | Draw errors in the editor: a wavy line, a dot next to the line number, and the message on hover |

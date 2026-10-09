@@ -82,10 +82,10 @@ describe("staticHighlight", () => {
 	});
 
 	it("gives class names with classPrefix, for themes in CSS", () => {
-		const html = staticHighlight(`[p = n: 1]\${ go(x) }\$[end]`, { classPrefix: "am-" });
-		expect(html).toContain(`<span class="am-identifier">p</span>`);
-		expect(html).toContain(`<span class="am-end-keyword">end</span>`);
-		expect(html).toContain(`<span class="am-logic"> <span class="am-js-call">go</span>`);
+		const html = staticHighlight(`[p = n: 1]\${ go(x) }\$[end]`, { classPrefix: "arcm-" });
+		expect(html).toContain(`<span class="arcm-identifier">p</span>`);
+		expect(html).toContain(`<span class="arcm-end-keyword">end</span>`);
+		expect(html).toContain(`<span class="arcm-logic"> <span class="arcm-js-call">go</span>`);
 		expect(html).not.toContain("style=");
 	});
 });
@@ -112,9 +112,9 @@ describe("staticHighlight errors", () => {
 	});
 
 	it("use classes with classPrefix", () => {
-		const html = staticHighlight(src, { errors: diagnose(src), classPrefix: "am-" });
-		expect(html).toContain(`<span class="am-error am-error-javascript" title=`);
-		expect(html).toContain(`<span class="am-error am-error-arcmoon" title=`);
+		const html = staticHighlight(src, { errors: diagnose(src), classPrefix: "arcm-" });
+		expect(html).toContain(`<span class="arcm-error arcm-error-javascript" title=`);
+		expect(html).toContain(`<span class="arcm-error arcm-error-arcmoon" title=`);
 	});
 });
 
@@ -210,8 +210,8 @@ describe("the live editor", () => {	it("highlights, lists errors and gives the v
 		await linted();
 		expect(messages.at(-1)).toBe(`JavaScript: Unexpected token (did you mean "const"?)`);
 		expect(lists.at(-1).map((d) => d.source)).toEqual(["JavaScript", "ArcMoon"]);
-		expect(box.querySelector(".cm-lintRange-error.cm-am-js").textContent).toBe("cosnt");
-		expect(box.querySelector(".cm-lintRange-error.cm-am-arcmoon").textContent).toBe("end");
+		expect(box.querySelector(".cm-lintRange-error.cm-arcm-error-js").textContent).toBe("cosnt");
+		expect(box.querySelector(".cm-lintRange-error.cm-arcm-error-arcmoon").textContent).toBe("end");
 
 		editor.goTo(lists.at(-1)[1]);
 		const { from, to } = editor.view.state.selection.main;
@@ -219,6 +219,21 @@ describe("the live editor", () => {	it("highlights, lists errors and gives the v
 
 		editor.destroy();
 		expect(box.children.length).toBe(0);
+	});
+
+	it("gives class names with classPrefix, like staticHighlight", async () => {
+		const box = document.createElement("div");
+		document.body.append(box);
+		const editor = attachHighlighter(box, { classPrefix: "arcm-", tokens: { KEY: "red" } });
+		editor.setValue("[p = n: 1]${ go(x) }$[end]");
+		const text = (cls) => [...box.querySelectorAll(`.${cls}`)].map((e) => e.textContent);
+		expect(text("arcm-identifier")).toEqual(["p"]);
+		expect(text("arcm-end-keyword")).toEqual(["end"]);
+		expect(text("arcm-js-call")).toEqual(["go"]);
+		expect(text("arcm-js-name")).toEqual(["x"]);
+		expect([...box.querySelectorAll(".cm-line span")].find((e) => e.textContent === "n").style.color).toBe("red");
+		expect(box.querySelector(".arcm-identifier").getAttribute("style")).toBeNull();
+		editor.destroy();
 	});
 
 	it("still checks with showErrors: false, but draws nothing", async () => {

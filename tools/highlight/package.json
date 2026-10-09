@@ -1,6 +1,6 @@
 {
 	"name": "arcmoon-highlight",
-	"version": "1.0.0",
+	"version": "1.1.0",
 	"description": "Syntax highlighting for ArcMoon (.arcm): static HTML, and a live editor with CodeMirror 6.",
 	"type": "module",
 	"main": "./dist/index.js",

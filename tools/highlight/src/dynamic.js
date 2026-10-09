@@ -7,12 +7,16 @@ import { EditorView, ViewPlugin, Decoration, keymap, lineNumbers } from "@codemi
 import { EditorState, RangeSetBuilder } from "@codemirror/state";
 import { history, defaultKeymap, historyKeymap, indentWithTab, deleteCharBackward } from "@codemirror/commands";
 import { linter, lintGutter } from "@codemirror/lint";
+import jsTokens from "js-tokens";
 import tokenize from "./tokens.js";
+import { jsKind } from "./js-highlight.js";
 import { diagnose } from "./diagnostics.js";
 import defaults from "./defaults.js";
 import { styleOf } from "./highlight.js";
 
 const markOf = (style) => Decoration.mark({ attributes: { style } });
+const classOf = (name) => Decoration.mark({ class: name });
+const kebab = (type) => type.toLowerCase().replace(/_/g, "-");
 
 // ###################
 // A render / context result is HTML: each <span style> in it becomes one mark
@@ -58,17 +62,32 @@ const drawWith = (config, ctx, mark) => {
 };
 
 const buildMarks = (view, config) => {
-	const { tokens: userTokens, other, onToken } = config;
+	const { tokens: userTokens, other, onToken, classPrefix } = config;
 	const tokens = tokenize(view.state.doc.toString());
 	const builder = new RangeSetBuilder();
 	let end = 0;
 	// ###################
 	// RangeSetBuilder needs marks in order and not overlapping
 	// ###################
-	const mark = (from, to, style) => {
+	const add = (from, to, decoration) => {
 		if (from < end || to <= from) return;
-		builder.add(from, to, markOf(style));
+		builder.add(from, to, decoration);
 		end = to;
+	};
+	const mark = (from, to, style) => add(from, to, markOf(style));
+
+	// ###################
+	// classPrefix: class names, the same as staticHighlight's, for themes in CSS
+	// ###################
+	const classes = (current) => {
+		if (current.type !== "LOGIC") return add(current.from, current.to, classOf(`${classPrefix}${kebab(current.type)}`));
+		const js = [...jsTokens(current.value)];
+		let at = current.from;
+		js.forEach((t, k) => {
+			const kind = jsKind(js, k);
+			if (kind) add(at, at + t.value.length, classOf(`${classPrefix}js-${kind}`));
+			at += t.value.length;
+		});
 	};
 	tokens.forEach((current, i) => {
 		if (current.type === "WHITESPACE") return;
@@ -79,6 +98,7 @@ const buildMarks = (view, config) => {
 		}
 		if (userTokens?.[current.type] !== undefined && drawWith(userTokens[current.type], ctx, mark)) return;
 		if (other !== undefined && drawWith(other, ctx, mark)) return;
+		if (classPrefix) return classes(current);
 		if (defaults[current.type] !== undefined) drawWith(defaults[current.type], ctx, mark);
 	});
 	return builder.finish();
@@ -101,7 +121,7 @@ const errorsOf = ({ rules, show, onError, onDiagnostics }) =>
 			onDiagnostics?.(list);
 			onError?.(list.length ? `${list[0].source}: ${list[0].message}` : null);
 			if (!show) return [];
-			return list.map(({ from, to, severity, source, message }) => ({ from, to, severity, source, message, markClass: source === "JavaScript" ? "cm-am-js" : "cm-am-arcmoon" }));
+			return list.map(({ from, to, severity, source, message }) => ({ from, to, severity, source, message, markClass: source === "JavaScript" ? "cm-arcm-error-js" : "cm-arcm-error-arcmoon" }));
 		},
 		{ delay: 250 }
 	);
@@ -152,8 +172,8 @@ export function attachHighlighter(element, config = {}) {
 		".cm-gutterElement": { padding: "0 0.75rem 0 0.5rem", textAlign: "right" },
 		".cm-activeLineGutter": { background: "transparent", color: "#8b8fa8" },
 		".cm-activeLine": { background: "rgba(99,102,241,0.04)" },
-		".cm-lintRange-error.cm-am-arcmoon": { backgroundImage: wave("#f43f5e") },
-		".cm-lintRange-error.cm-am-js": { backgroundImage: wave("#f59e0b") },
+		".cm-lintRange-error.cm-arcm-error-arcmoon": { backgroundImage: wave("#f43f5e") },
+		".cm-lintRange-error.cm-arcm-error-js": { backgroundImage: wave("#f59e0b") },
 		".cm-tooltip": { background: "#1e1e24", color: "#e8eaf0", border: "1px solid rgba(255,255,255,0.1)", borderRadius: "6px" },
 		".cm-diagnostic": { padding: "4px 8px", fontFamily: "inherit" },
 		".cm-diagnosticSource": { color: "#8b8fa8", opacity: 1 },
