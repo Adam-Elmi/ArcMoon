@@ -56,7 +56,7 @@ describe("scoped component styles", () => {
 
 	it("bundles a [link] written in a styled component, and removes lines left empty", async () => {
 		const html = await compile(`[import = Shell: "./Shell.arcm" !]\n[Shell!]\n[p]x[end]\n[style]\n  p { color: red }\n[end]\n[p]y[end]`);
-		expect(html).toMatch(/^<head data-a-[a-z0-9]+><style>body\{color:navy\}p\{color:red\}head\[data-a-[a-z0-9]+\]\{display:none\}<\/style><\/head>\n\n<p>x<\/p>\n<p>y<\/p>$/);
+		expect(html).toMatch(/^<head data-a-[a-z0-9]+><style>body\{color:navy\}p\{color:red\}head\[data-a-[a-z0-9]+\]\{display:none\}<\/style><\/head>\n<p>x<\/p>\n<p>y<\/p>$/);
 	});
 
 	it("puts the <style> at the start when there is no <head>", async () => {

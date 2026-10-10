@@ -280,3 +280,39 @@ describe("compile: hints in confusing errors", () => {
 		expect(plain.message).not.toMatch(/If you meant the word/);
 	});
 });
+
+describe("compile: a component's final line break", () => {
+	const withFiles = async (files, run) => {
+		const { mkdtemp, writeFile, rm } = await import("node:fs/promises");
+		const { tmpdir } = await import("node:os");
+		const { join } = await import("node:path");
+		const dir = await mkdtemp(join(tmpdir(), "arcmoon-final-break-"));
+		try {
+			for (const [name, text] of Object.entries(files)) await writeFile(join(dir, name), text);
+			return await run((src) => new ArcMoon({ src, cwd: dir }).compile());
+		} finally {
+			await rm(dir, { recursive: true, force: true });
+		}
+	};
+
+	it("is not output, so inline components don't add a space to the sentence", async () => {
+		await withFiles(
+			{
+				"Link.arcm": `\${ const { text } = ArcMoon.props(); }\$\n[a]\${ text }\$[end]\n`,
+				"Styled.arcm": `[b]x[end]\n[style]\n  b { color: red }\n[end]\n`,
+				"Crlf.arcm": `[i]y[end]\r\n`
+			},
+			async (compile) => {
+				const html = await compile(`[import = Link: "./Link.arcm" !]\n[import = Styled: "./Styled.arcm" !]\n[import = Crlf: "./Crlf.arcm" !]\n[p]See [Link = text: "Syntax" !], [Styled!]. [Crlf!]![end]`);
+				expect(html).toMatch(/<p>See <a>Syntax<\/a>, <b data-a-[a-z0-9]+>x<\/b>\. <i>y<\/i>!<\/p>/);
+			}
+		);
+	});
+
+	it("drops only that one break; a page keeps its own", async () => {
+		await withFiles({ "Block.arcm": `[div]\n  [p]in[end]\n[end]\n\n` }, async (compile) => {
+			expect(await compile(`[import = Block: "./Block.arcm" !]\n[main][Block!][end]`)).toBe(`<main><div>\n  <p>in</p>\n</div>\n</main>`);
+			expect(await compile(`[p]a[end]\n`)).toBe(`<p>a</p>\n`);
+		});
+	});
+});

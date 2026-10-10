@@ -555,6 +555,22 @@ export default async function evaluate(graph, options = {}) {
 	// ###################
 	// Unread props and directives go onto the root element
 	// ###################
+	// ###################
+	// A component file's final line break is not output (§5.7): editors add one to every
+	// file, and inside text it would show as a space ("Syntax ," after [Link …])
+	// ###################
+	// (a [style] or [link] at the end moves to <head> later, so the break before it is the last one too)
+	const dropFinalBreak = (nodes) => {
+		for (let i = nodes.length - 1; i >= 0; i--) {
+			const node = nodes[i];
+			if (node.type === "element" && /^(style|link)$/i.test(node.tagName)) continue;
+			if (node.type !== "text") return;
+			node.value = node.value.replace(/\r?\n[ \t]*$/, "");
+			if (node.value) return;
+			nodes.splice(i, 1);
+		}
+	};
+
 	const fallThrough = (nodes, callerProps, readProps, directives) => {
 		const root = nodes.find((x) => x.type === "element");
 		if (!root) return;
@@ -605,6 +621,7 @@ export default async function evaluate(graph, options = {}) {
 			component: async (childId, childProps, childSlot, directives) => {
 				const nodes = await run(childId, childProps, childSlot, use.id);
 				fallThrough(nodes, childProps, compiled.get(childId).readProps, directives);
+				dropFinalBreak(nodes);
 				return nodes;
 			}
 		};
