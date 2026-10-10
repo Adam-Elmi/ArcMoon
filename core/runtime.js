@@ -276,6 +276,23 @@ export default function prepareRuntime(result) {
 	for (const u of perUse) if (u.parent !== null) perUse[u.parent].children.push(u.id);
 
 	let elementCount = 0;
+
+	// ###################
+	// The id live values use to find their element. A single ref's id is unique, so it is used;
+	// a shared ref's id is shared by its elements, so the element gets one of its own next to it
+	// (data-arcm-ref holds space-separated ids: "item-u0 e3")
+	// ###################
+	const ownId = (node) => {
+		if (node.data.liveId) return node.data.liveId;
+		const current = node.properties["data-arcm-ref"];
+		let id = current;
+		if (!current || node.data.sharedRef) {
+			id = `e${elementCount++}`;
+			node.properties["data-arcm-ref"] = current ? `${current} ${id}` : id;
+		}
+		node.data.liveId = id;
+		return id;
+	};
 	const initialTargets = [];
 	const styles = [];
 
@@ -339,6 +356,7 @@ export default function prepareRuntime(result) {
 				}
 				if (!seen) u.attached.set(refName, { name: refName, id: `${refName}-u${u.id}`, shared, used: false });
 				node.properties["data-arcm-ref"] = u.attached.get(refName).id;
+				node.data.sharedRef = shared;
 			}
 
 			for (const [key, value] of Object.entries(node.properties)) {
@@ -352,8 +370,7 @@ export default function prepareRuntime(result) {
 				}
 				delete node.properties[key];
 				value.where = `for "${key}" on [${node.tagName}]`;
-				node.properties["data-arcm-ref"] ??= `e${elementCount++}`;
-				const target = addLive(value, { id: node.properties["data-arcm-ref"], attr: key });
+				const target = addLive(value, { id: ownId(node), attr: key });
 				initialTargets.push({ marker: value, element: node, key, target });
 			}
 
@@ -361,7 +378,7 @@ export default function prepareRuntime(result) {
 			// Live text in a page [style]: the client rebuilds the whole CSS text
 			// ###################
 			if (node.tagName.toLowerCase() === "style" && node.children.some((c) => c.type === "runtime")) {
-				const id = (node.properties["data-arcm-ref"] ??= `e${elementCount++}`);
+				const id = ownId(node);
 				node.children = node.children.map((c, part) => {
 					if (c.type !== "runtime") return c;
 					c.where = "inside [style]";

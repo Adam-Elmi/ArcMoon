@@ -251,9 +251,10 @@ export default class ArcMoon {
 			// ###################
 			const byRef = new Map();
 			for (const el of fragment.querySelectorAll("[data-arcm-ref]")) {
-				const id = el.getAttribute("data-arcm-ref");
-				if (!byRef.has(id)) byRef.set(id, []);
-				byRef.get(id).push(el);
+				for (const id of el.getAttribute("data-arcm-ref").split(/\s+/)) {
+					if (!byRef.has(id)) byRef.set(id, []);
+					byRef.get(id).push(el);
+				}
 				el.removeAttribute("data-arcm-ref");
 			}
 			const comments = new Map();

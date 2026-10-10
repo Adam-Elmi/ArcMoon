@@ -213,6 +213,18 @@ describe("compile() in the browser", () => {
 	});
 });
 
+describe("render() with shared refs (B21)", () => {
+	it("each element with a shared ref runs its own handler", async () => {
+		const host = await mount({
+			src: `runtime \${ window.clicked = []; ArcMoon.refs(ArcMoon.defineRef("item")); }\$\n[button = arcm-shared-ref: "item", onclick: runtime \${ () => window.clicked.push("A") }\$]A[end][button = arcm-shared-ref: "item", onclick: runtime \${ () => window.clicked.push("B") }\$]B[end]`
+		});
+		const [a, b] = host.querySelectorAll("button");
+		b.click();
+		a.click();
+		expect(window.clicked).toEqual(["B", "A"]);
+	});
+});
+
 describe("browser timeout", () => {
 	it("terminates a worker that never answers, and says why", async () => {
 		const stuck = { addEventListener() {}, removeEventListener() {}, postMessage() {}, terminated: false, terminate() { this.terminated = true; } };

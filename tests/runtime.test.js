@@ -203,3 +203,32 @@ describe("exported values used only in import() (B18)", () => {
 		);
 	});
 });
+
+describe("live values on elements with a shared ref (B21)", () => {
+	const src = `runtime \${
+  window.clicked = [];
+  window.count = ArcMoon.refs(ArcMoon.defineRef("item")).length;
+}\$
+[button = arcm-shared-ref: "item", onclick: runtime \${ () => window.clicked.push("A") }\$, title: runtime \${ "first" }\$]A[end]
+[button = arcm-shared-ref: "item", onclick: runtime \${ () => window.clicked.push("B") }\$]B[end]
+[p = arcm-ref: "one", title: runtime \${ "single" }\$]x[end]
+runtime \${ ArcMoon.defineRef("one"); }\$`;
+
+	it("each element runs its own handler, and refs() still finds all of them", async () => {
+		const html = await compile(src);
+		const win = open(html).defaultView;
+		const [a, b] = win.document.querySelectorAll("button");
+		b.click();
+		a.click();
+		expect(win.clicked).toEqual(["B", "A"]);
+		expect(win.count).toBe(2);
+		expect(a.getAttribute("title")).toBe("first");
+		expect(b.hasAttribute("title")).toBe(false);
+	});
+
+	it("gives a shared-ref element an id of its own; a single ref keeps one id", async () => {
+		const html = await compile(src);
+		expect(html).toMatch(/<button data-arcm-ref="item-u\d+ e\d+">A<\/button>/);
+		expect(html).toMatch(/<p data-arcm-ref="one-u\d+">x<\/p>/);
+	});
+});

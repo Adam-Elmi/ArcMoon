@@ -22,7 +22,7 @@ const liveComment = (id) => {
 // Where elements are found: the whole page, or elements render() already built
 // ###################
 const pageDom = {
-	byRef: (id) => [...document.querySelectorAll(`[data-arcm-ref="${id}"]`)],
+	byRef: (id) => [...document.querySelectorAll(`[data-arcm-ref~="${id}"]`)],
 	liveComment
 };
 

@@ -1,6 +1,6 @@
 {
   "name": "arcmoon",
-  "version": "1.0.0-rc.3",
+  "version": "1.0.0-rc.4",
   "description": "ArcMoon is a template language that compiles to web pages.",
   "keywords": [
     "template-language",
