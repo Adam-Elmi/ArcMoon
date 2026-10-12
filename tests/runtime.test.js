@@ -129,6 +129,15 @@ describe("runtime", () => {
 		expect(html).toContain(`<p data-item="1">0</p>`);
 	});
 
+	it(`keeps "<!--", "<script" and "</script" in runtime code from ending the inline script`, async () => {
+		const code = `const el = ArcMoon.ref(ArcMoon.defineRef("out")); el.dataset.a = "<!--" + "<script>"; el.dataset.b = \`<\/script>\`; el.dataset.c = String(/<script/u.test("<script"));`;
+		const html = await compile(`[p = arcm-ref: "out"]x[end]\nruntime \${ ${code} }\$`);
+		const inline = html.slice(html.indexOf(`<script type="module">`) + 22, html.lastIndexOf("</script>"));
+		expect(inline).not.toMatch(/<!--|<\/?script/i);
+		const p = open(html).querySelector("p");
+		expect([p.dataset.a, p.dataset.b, p.dataset.c]).toEqual(["<!--<script>", "</script>", "true"]);
+	});
+
 	it("adds no script when there is no runtime code", async () => {
 		expect(await compile(`[p]a[end]`)).toBe(`<p>a</p>`);
 	});

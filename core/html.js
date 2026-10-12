@@ -2,6 +2,7 @@
 // Page tree to HTML: attribute names, doctype, the runtime script
 // ###################
 
+import * as acorn from "acorn";
 import { find, html, svg } from "property-information";
 
 export class CompilerError extends Error {
@@ -218,7 +219,42 @@ const bodyOf = (node) => {
 };
 
 export const addScript = (tree, js) => {
-	(bodyOf(tree) ?? tree).children.push({ type: "raw", value: `<script type="module">${js}</script>` });
+	(bodyOf(tree) ?? tree).children.push({ type: "raw", value: `<script type="module">${safeInline(js)}</script>` });
+};
+
+// ###################
+// Inline JS can't hold "<!--", "<script" or "</script": the HTML parser would end the script early
+// In strings, templates and regexes "<" becomes \x3C; in code and comments a space goes after it
+// ###################
+const RISKY = /<(?=!--|\/?script)/gi;
+const QUOTED = new Set(["string", "template", "invalidTemplate", "regexp"]);
+
+export const safeInline = (js) => {
+	if (!/<(?:!--|\/?script)/i.test(js)) return js;
+	const quoted = [];
+	try {
+		for (const t of acorn.tokenizer(js, { ecmaVersion: "latest", sourceType: "module" })) {
+			if (QUOTED.has(t.type.label)) quoted.push([t.start, t.end]);
+		}
+	} catch {
+		return js.replace(/<\/script/gi, "<\\/script");
+	}
+	const inQuoted = (i) => quoted.some(([a, b]) => i >= a && i < b);
+	let out = "";
+	let last = 0;
+	for (const m of js.matchAll(RISKY)) {
+		const i = m.index;
+		if (inQuoted(i)) {
+			// "\<" is "<" too: drop the backslash, or it would escape the new one
+			let slashes = 0;
+			while (js[i - 1 - slashes] === "\\") slashes++;
+			out += js.slice(last, slashes % 2 ? i - 1 : i) + "\\x3C";
+		} else {
+			out += js.slice(last, i) + "< ";
+		}
+		last = i + 1;
+	}
+	return out + js.slice(last);
 };
 
 // ###################

@@ -41,6 +41,18 @@ describe("browser compile", () => {
 		expect(text(r.tree).trim()).toBe("<div><h2>demo</h2>5</div>");
 	});
 
+	it.each(["./", ".", "/"])(`resolves an import alias to the root (%s) without "//"`, async (target) => {
+		const r = await compile({
+			filename: "main.arcm",
+			importAliases: { "@": target },
+			files: {
+				"main.arcm": `[import = Custom: "@/custom.arcm" !][Custom!]`,
+				"custom.arcm": `[b]custom[end]`
+			}
+		});
+		expect(text(r.tree).trim()).toBe("<b>custom</b>");
+	});
+
 	it("fetches files from baseUrl", async () => {
 		const fetch = vi.fn(async (url) => ({ ok: true, status: 200, text: async () => (String(url).endsWith("Card.arcm") ? "[b]fetched[end]" : "") }));
 		vi.stubGlobal("fetch", fetch);

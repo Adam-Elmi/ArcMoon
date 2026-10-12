@@ -30,7 +30,8 @@ export default async function loadModules(entry, host, options = {}) {
 
 	const applyAlias = (path) => {
 		for (const [alias, target] of Object.entries(aliases)) {
-			if (path === alias || path.startsWith(alias + "/")) return target + path.slice(alias.length);
+			// one "/" between them, so a target of "/" or "./" doesn't give "//file"
+			if (path === alias || path.startsWith(alias + "/")) return (target.replace(/\/+$/, "") + path.slice(alias.length)) || target;
 		}
 		return path;
 	};
