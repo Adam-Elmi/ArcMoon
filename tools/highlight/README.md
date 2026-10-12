@@ -4,8 +4,8 @@ Syntax highlighting for [ArcMoon](https://github.com/Adam-Elmi/ArcMoon) (`.arcm`
 
 - **Static:** turns ArcMoon code into highlighted HTML. Works in Node.js and the browser.
 - **Live editor:** a CodeMirror 6 editor that highlights as you type and shows errors.
-- **Errors:** ArcMoon's syntax errors, JavaScript errors inside every `${ }$`, and ArcMoon's rules for code, each at the exact spot.
-- JavaScript inside `${ }$` and `runtime ${ }$` is highlighted too.
+- **Errors:** ArcMoon's syntax errors, JavaScript errors inside every `${ }$`, ArcMoon's rules for code, and CSS problems in `[style]`, each at the exact spot.
+- JavaScript inside `${ }$` and `runtime ${ }$` is highlighted too, and so is CSS: in `[style]`, and in `style:`, `css.name` and `--name` props.
 
 ## Install
 
@@ -81,7 +81,7 @@ staticHighlight(src, { classPrefix: "arcm-" });
 // <span class="arcm-identifier">p</span> … <span class="arcm-js-keyword">const</span>
 ```
 
-The class is the prefix plus the token type in lowercase with dashes (`END_KEYWORD` → `arcm-end-keyword`). JavaScript inside `${ }$` gets `arcm-js-keyword`, `arcm-js-call`, `arcm-js-key`, `arcm-js-property`, `arcm-js-string`, `arcm-js-number`, `arcm-js-regex`, `arcm-js-comment`, `arcm-js-operator` and `arcm-js-name`.
+The class is the prefix plus the token type in lowercase with dashes (`END_KEYWORD` → `arcm-end-keyword`). JavaScript inside `${ }$` gets `arcm-js-keyword`, `arcm-js-call`, `arcm-js-key`, `arcm-js-property`, `arcm-js-string`, `arcm-js-number`, `arcm-js-regex`, `arcm-js-comment`, `arcm-js-operator` and `arcm-js-name`. CSS in `[style]` gets `arcm-css-property`, `arcm-css-class` and the rest (see [CSS](#css)).
 
 ### Errors in static code
 
@@ -95,11 +95,11 @@ const src = `\${ cosnt a = 1; }$`;
 const html = staticHighlight(src, { errors: diagnose(src) });
 ```
 
-- ArcMoon errors are underlined in rose, JavaScript errors in orange.
+- ArcMoon errors are underlined in rose, JavaScript errors in orange, CSS errors and warnings in violet.
 - The list can be your own: `{ from, to, message, source? }` marks any part of the code, for example to point at something in a lesson.
-- With `classPrefix: "arcm-"`, an error is `<span class="arcm-error arcm-error-javascript" title="…">` (or `arcm-error-arcmoon`), so CSS draws it.
+- With `classPrefix: "arcm-"`, an error is `<span class="arcm-error arcm-error-javascript" title="…">` (or `arcm-error-arcmoon`, `arcm-error-css`), so CSS draws it.
 
-`diagnose` is a separate import so the static highlighter stays small: the checker (acorn) is only loaded when you use it.
+`diagnose` is a separate import so the static highlighter stays small: the checkers (acorn for JavaScript, css-tree for CSS) are only loaded when you use it.
 
 ### Default colors
 
@@ -187,14 +187,14 @@ diagnose(`\${ cosnt a = 1; }$\n[p]x[end][end]`);
 
 | Field | What it is |
 | --- | --- |
-| `source` | `"ArcMoon"` or `"JavaScript"`: where the error comes from |
+| `source` | `"ArcMoon"`, `"JavaScript"` or `"CSS"`: where the error comes from |
 | `message` | What is wrong |
 | `line`, `column` | Where it starts, counted from 1 |
 | `text` | The underlined part of the code |
 | `from`, `to` | The same place as offsets in the code (for `goTo` and `errors`) |
-| `severity` | `"error"` |
+| `severity` | `"error"`, or `"warning"` for CSS that may still work (an unknown property, a value that doesn't fit) |
 
-In the editor, ArcMoon errors have a rose line and JavaScript errors an orange one.
+In the editor, ArcMoon errors have a rose line, JavaScript errors an orange one, and CSS errors and warnings a violet one.
 
 **ArcMoon:** the syntax of the markup, from ArcMoon's own parser (`[end] has no open block to close`). After one of these the markup can't be read further, so there is at most one.
 
@@ -218,6 +218,23 @@ An open string or `{` makes ArcMoon read past `}$`, which would only say "logic 
 | `${ return 1; more(); }$` | `return` must be the last statement |
 | `[p = t: ${ import a from "a"; }$]` | `import` / `export` only in a `${ }$` block, not in a prop value |
 | `${ export default 1; }$` | Only named exports |
+
+**CSS** in `[style]` and in `style: "…"` props, with [css-tree](https://github.com/csstree/csstree):
+
+| CSS | Severity | Message |
+| --- | --- | --- |
+| `.a { color: red` | error | `this { is never closed` |
+| `.a }` | error | `this } has no { to close` |
+| `content: "x;` / `/* note` | error | `this string is never closed` / `this comment is never closed (*/)` |
+| `.a { color }` | error | `expected "property: value"` |
+| `colr: red` | warning | `"colr" is not a CSS property (did you mean "color"?)` |
+| `display: flx` | warning | `"flx" is not a valid value for display` |
+
+In `css.name: "…"` props, the name is checked (`css.colr is not a CSS property (did you mean css.color?)`) and the value is checked against it; in `css.name` and `--name` props, `;` `{` `}` are errors, as in the compiler.
+
+While a block has a syntax error, its property and value warnings wait until that's fixed.
+
+Not checked: a declaration with `${ }$` in it (its value is only known when the page is built), custom properties (`--gap`) and vendor-prefixed ones (`-webkit-…`).
 
 Checks that need the whole project (packages listed in `bundle`, names exported from `${ }$`, refs) are left to [ArcMoon-LSP](https://github.com/Adam-Elmi/ArcMoon-LSP).
 
@@ -256,6 +273,22 @@ Two bundles in `dist/`. Both give a global `ArcMoonHighlight`, with ArcMoon's le
 | `COMMENT`, `COMMENT_BLOCK` | `# …` and `### … ###` |
 | `RUNTIME_KEYWORD` | `runtime` before `${` |
 | `LOGIC_OPEN`, `LOGIC`, `LOGIC_CLOSE` | `${`, the JavaScript, `}$` |
+| `CSS_*` | CSS inside `[style]` (see below) |
+
+### CSS
+
+The body of a `[style]` block is split into CSS tokens, and so is the inside of a `style: "…"`, `css.name: "…"` or `--name: "…"` prop's string (its quotes stay `STRING`). Each `${ }$` inside it keeps its own tokens, so `${ w }$px` is `LOGIC_OPEN`, `LOGIC`, `LOGIC_CLOSE`, then `CSS_NUMBER` for `px`. A `[style … !]` with no body, and text outside `[style]`, stay as they are.
+
+| Token | What it is |
+| --- | --- |
+| `CSS_SELECTOR`, `CSS_CLASS`, `CSS_ID`, `CSS_PSEUDO`, `CSS_ATTRIBUTE` | `h1`, `.card`, `#main`, `:hover` / `::before`, `[type="text"]` |
+| `CSS_AT_RULE` | `@media`, `@keyframes` |
+| `CSS_PROPERTY`, `CSS_VARIABLE` | `color`, `--gap` |
+| `CSS_VALUE`, `CSS_NUMBER`, `CSS_COLOR`, `CSS_FUNCTION` | `auto`, `1.5rem`, `#d7263d`, `calc` |
+| `CSS_STRING`, `CSS_IMPORTANT`, `CSS_COMMENT` | `"→"`, `!important`, `/* … */` |
+| `CSS_PUNCTUATION`, `CSS_TEXT` | `{ } : ; , ( )`, anything else |
+
+Color them like any token: `tokens: { CSS_PROPERTY: "#9cdcfe" }`, or with `classPrefix` (`arcm-css-property`).
 
 Each token passed to `context` and `onToken` is `{ type, value, from, to }`: `value` is the text as written, `from` / `to` are offsets in the source. `tokenize(src)` gives the same list.
 

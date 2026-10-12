@@ -249,3 +249,67 @@ describe("the live editor", () => {	it("highlights, lists errors and gives the v
 	});
 
 });
+
+// ###################
+// CSS in [style]: tokens, highlighting, errors
+// ###################
+const STYLE = `[p]x[end]\n[style]\n  .card > h2:hover { color: #fff; width: \${ w }\$px !important; }\n  @media (max-width: 600px) { --gap: calc(1rem + 2px); }\n[end:style]`;
+
+describe("CSS", () => {
+	it("splits a [style] body into CSS tokens, and keeps the text as written", () => {
+		const tokens = tokenize(STYLE);
+		expect(tokens.map((t) => t.value).join("")).toBe(STYLE);
+		const css = tokens.filter((t) => t.type.startsWith("CSS_")).map((t) => `${t.type}:${t.value}`);
+		expect(css).toEqual(expect.arrayContaining(["CSS_CLASS:.card", "CSS_SELECTOR:h2", "CSS_PSEUDO::hover", "CSS_PROPERTY:color", "CSS_COLOR:#fff", "CSS_NUMBER:px", "CSS_IMPORTANT:!important", "CSS_AT_RULE:@media", "CSS_VARIABLE:--gap", "CSS_FUNCTION:calc", "CSS_NUMBER:1rem"]));
+		expect(tokens.find((t) => t.type === "LOGIC")).toMatchObject({ value: " w " });
+	});
+
+	it("leaves text outside [style], and a [style … !] with no body, alone", () => {
+		expect(tokenize(`[p].a { color: red }[end]`).some((t) => t.type.startsWith("CSS_"))).toBe(false);
+		expect(tokenize(`[style = scoped: true !][p].a { x: y }[end]`).some((t) => t.type.startsWith("CSS_"))).toBe(false);
+	});
+
+	it("draws CSS with classPrefix classes, or default colors", () => {
+		const html = staticHighlight(STYLE, { classPrefix: "arcm-" });
+		expect(html).toContain(`<span class="arcm-css-property">color</span>`);
+		expect(html).toContain(`<span class="arcm-css-class">.card</span>`);
+		expect(plain(staticHighlight(STYLE))).toBe(STYLE);
+		expect(staticHighlight(STYLE, { tokens: { CSS_PROPERTY: "#123456" } })).toContain(span("color:#123456", "color"));
+	});
+
+	it("reports braces and syntax as errors, unknown properties and bad values as warnings", () => {
+		const found = (src) => diagnose(src).filter((d) => d.source === "CSS").map((d) => [d.severity, d.text, d.message]);
+		expect(found(`[style] .a { colr: red; color: blu; padding: 1px 2px 3px 4px 5px } [end]`)).toEqual([
+			["warning", "colr", `"colr" is not a CSS property (did you mean "color"?)`],
+			["warning", "blu", `"blu" is not a valid value for color`],
+			["warning", "1px 2px 3px 4px 5px", `"1px 2px 3px 4px 5px" is not a valid value for padding`]
+		]);
+		expect(found(`[style] .a { color: red [end]`)).toEqual([["error", "{", "this { is never closed"]]);
+		expect(found(`[style] .a } [end]`)).toEqual([["error", "}", "this } has no { to close"]]);
+	});
+
+	it("reports a statement with no colon, but allows ;;", () => {
+		const found = diagnose(`[style] .a { color } .b { margin: 0;; } [end]`).map((d) => [d.severity, d.text, d.message]);
+		expect(found).toEqual([["error", "color", 'expected "property: value"']]);
+	});
+
+	it("highlights and checks CSS in style:, css.name and --name props", () => {
+		const css = tokenize(`[p = style: "color: red", css.width: "50%", --gap: "1rem"]x[end]`).filter((t) => t.type.startsWith("CSS_") || t.type === "STRING").map((t) => `${t.type}:${t.value}`);
+		expect(css).toEqual(['STRING:"', "CSS_PROPERTY:color", "CSS_PUNCTUATION::", "CSS_VALUE:red", 'STRING:"', 'STRING:"', "CSS_NUMBER:50%", 'STRING:"', 'STRING:"', "CSS_NUMBER:1rem", 'STRING:"']);
+		const found = (src) => diagnose(src).map((d) => [d.severity, d.text, d.message]);
+		expect(found(`[p = style: "colr: red; color: blu"]x[end]`)).toEqual([
+			["warning", "colr", `"colr" is not a CSS property (did you mean "color"?)`],
+			["warning", "blu", `"blu" is not a valid value for color`]
+		]);
+		expect(found(`[p = css.colr: "red", css.color: "blu", css.width: "1px; x: y"]x[end]`)).toEqual([
+			["warning", "css.colr", "css.colr is not a CSS property (did you mean css.color?)"],
+			["warning", "blu", `"blu" is not a valid value for color`],
+			["error", "1px; x: y", `css.width can't contain ";", "{" or "}": it would add other CSS to the element`]
+		]);
+		expect(diagnose(`[p = style: "color: red; margin: 0 auto", css.color: "#fff", --x: "anything"]x[end]`)).toEqual([]);
+	});
+
+	it("doesn't check what ArcMoon fills in, custom properties or vendor prefixes", () => {
+		expect(diagnose(`[style] .a { width: \${ w }\$px; --x: anything; -webkit-thing: 1; color: red } [end]`)).toEqual([]);
+	});
+});

@@ -4,6 +4,7 @@
 // ###################
 
 import lexer from "../../../core/lexer.js";
+import { withCss } from "./css.js";
 
 const offsets = (src) => {
 	const starts = [0];
@@ -27,7 +28,7 @@ const fromLexer = (src) => {
 // Never throws: half-written code (an open string, an open ${) is
 // highlighted up to the error, and the rest is plain TEXT
 // ###################
-export default function tokenize(src) {
+export function rawTokens(src) {
 	try {
 		return fromLexer(src);
 	} catch (err) {
@@ -39,4 +40,11 @@ export default function tokenize(src) {
 		const last = head.at(-1)?.to ?? 0;
 		return last < src.length ? [...head, { type: "TEXT", value: src.slice(last), from: last, to: src.length }] : head;
 	}
+}
+
+// ###################
+// ArcMoon's tokens, with the CSS in [style] bodies as CSS_* tokens
+// ###################
+export default function tokenize(src) {
+	return withCss(src, rawTokens(src));
 }

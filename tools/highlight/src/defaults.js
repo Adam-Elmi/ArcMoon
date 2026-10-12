@@ -43,7 +43,28 @@ const defaults = {
 	COMMENT_BLOCK: COMMENT,
 
 	TEXT: { color: "#e8eaf0" },
-	WHITESPACE: null
+	WHITESPACE: null,
+
+	// ###################
+	// CSS in [style]
+	// ###################
+	CSS_SELECTOR: { color: "#d7ba7d" },
+	CSS_CLASS: { color: "#d7ba7d" },
+	CSS_ID: { color: "#d7ba7d" },
+	CSS_PSEUDO: { color: "#d7ba7d" },
+	CSS_ATTRIBUTE: { color: "#9cdcfe" },
+	CSS_AT_RULE: KEYWORD,
+	CSS_PROPERTY: { color: "#9cdcfe" },
+	CSS_VARIABLE: { color: "#9cdcfe" },
+	CSS_VALUE: { color: "#ce9178" },
+	CSS_NUMBER: { color: "#b5cea8" },
+	CSS_COLOR: { color: "#ce9178" },
+	CSS_FUNCTION: { color: "#dcdcaa" },
+	CSS_STRING: { color: "#ce9178" },
+	CSS_IMPORTANT: { color: "#569cd6", bold: true },
+	CSS_COMMENT: COMMENT,
+	CSS_PUNCTUATION: PUNCT,
+	CSS_TEXT: { color: "#e8eaf0" }
 };
 
 export default defaults;

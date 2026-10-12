@@ -57,7 +57,7 @@ const cutAt = (tokens, errors) => {
 	});
 };
 
-const ERROR_COLORS = { ArcMoon: "#f43f5e", JavaScript: "#f59e0b" };
+const ERROR_COLORS = { ArcMoon: "#f43f5e", JavaScript: "#f59e0b", CSS: "#a78bfa" };
 
 const errorOpen = (error, classPrefix) => {
 	const title = escapeHtml(`${error.source ? `${error.source}: ` : ""}${error.message ?? ""}`).replace(/"/g, "&quot;");

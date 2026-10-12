@@ -106,7 +106,7 @@ const buildMarks = (view, config) => {
 
 // ###################
 // Errors: every one gets an underline, a gutter mark and a tooltip
-// ArcMoon's own errors are red, JavaScript errors orange
+// ArcMoon's own errors are red, JavaScript errors orange, CSS errors and warnings violet
 // ###################
 const wave = (color) =>
 	`url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="6" height="3"><path d="m0 2.5 l2 -1.5 l1 0 l2 1.5 l1 0" stroke="${encodeURIComponent(color)}" fill="none" stroke-width=".7"/></svg>')`;
@@ -121,7 +121,7 @@ const errorsOf = ({ rules, show, onError, onDiagnostics }) =>
 			onDiagnostics?.(list);
 			onError?.(list.length ? `${list[0].source}: ${list[0].message}` : null);
 			if (!show) return [];
-			return list.map(({ from, to, severity, source, message }) => ({ from, to, severity, source, message, markClass: source === "JavaScript" ? "cm-arcm-error-js" : "cm-arcm-error-arcmoon" }));
+			return list.map(({ from, to, severity, source, message }) => ({ from, to, severity, source, message, markClass: source === "JavaScript" ? "cm-arcm-error-js" : source === "CSS" ? "cm-arcm-error-css" : "cm-arcm-error-arcmoon" }));
 		},
 		{ delay: 250 }
 	);
@@ -174,6 +174,9 @@ export function attachHighlighter(element, config = {}) {
 		".cm-activeLine": { background: "rgba(99,102,241,0.04)" },
 		".cm-lintRange-error.cm-arcm-error-arcmoon": { backgroundImage: wave("#f43f5e") },
 		".cm-lintRange-error.cm-arcm-error-js": { backgroundImage: wave("#f59e0b") },
+		".cm-lintRange-error.cm-arcm-error-css, .cm-lintRange-warning.cm-arcm-error-css": { backgroundImage: wave("#a78bfa") },
+		".cm-diagnostic-warning": { borderLeft: "3px solid #a78bfa" },
+		".cm-lint-marker-warning": { content: "none", background: "#a78bfa", borderRadius: "50%" },
 		".cm-tooltip": { background: "#1e1e24", color: "#e8eaf0", border: "1px solid rgba(255,255,255,0.1)", borderRadius: "6px" },
 		".cm-diagnostic": { padding: "4px 8px", fontFamily: "inherit" },
 		".cm-diagnosticSource": { color: "#8b8fa8", opacity: 1 },

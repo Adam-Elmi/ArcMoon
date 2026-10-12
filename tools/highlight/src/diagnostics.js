@@ -3,7 +3,9 @@
 //   ArcMoon: the lexer and parser (one error: after it the markup can't be trusted)
 //   JavaScript: every ${ }$ parsed with acorn, like the compiler does
 //   ArcMoon's JS rules: export in runtime code, Node.js imports in the browser…
-// → [{ from, to, line, column, text, severity, source: "ArcMoon" | "JavaScript", message }]
+//   CSS in [style], style: "…", css.name and --name props: braces, syntax and missing colons (errors),
+//   unknown properties and bad values (warnings)
+// → [{ from, to, line, column, text, severity, source: "ArcMoon" | "JavaScript" | "CSS", message }]
 //   from / to: offsets; line / column: where it starts, from 1; text: the underlined part
 // ###################
 
@@ -12,6 +14,9 @@ import jsTokens from "js-tokens";
 import lexer from "../../../core/lexer.js";
 import parser from "../../../core/parser.js";
 import closest from "../../../core/suggest.js";
+import { parse as parseCss, lexer as cssLexer, walk as walkCss } from "css-tree";
+import { rawTokens } from "./tokens.js";
+import { cssRegions, cssText, unbalanced, missingColons, propCss } from "./css.js";
 
 const ACORN = { ecmaVersion: "latest", sourceType: "module", allowAwaitOutsideFunction: true, allowReturnOutsideFunction: true };
 
@@ -251,6 +256,105 @@ const openLogic = (src, err, out, rules) => {
 	return out.slice(before).some((d) => d.source === "JavaScript");
 };
 
+// ###################
+// CSS in [style] bodies. Braces and syntax are errors; an unknown property or a value that doesn't fit
+// its property is a warning (css-tree knows every property's syntax). A declaration with ${ }$ in it
+// isn't checked: its value is only known when the page is built
+// ###################
+const CSS_PROPERTIES = Object.keys(cssLexer.properties);
+
+// ###################
+// Each declaration's property and value; at() turns an offset in text into one in src
+// ###################
+const checkDeclarations = (src, ast, at, touchesCode, out) => {
+	walkCss(ast, {
+		visit: "Declaration",
+		enter(node) {
+			const { start, end } = node.loc;
+			if (node.property.startsWith("--") || touchesCode(start.offset, end.offset)) return;
+			const match = cssLexer.matchDeclaration(node);
+			if (!match.error) return;
+			if (match.error.name === "SyntaxReferenceError") {
+				if (node.property.startsWith("-")) return;
+				const best = closest(node.property, CSS_PROPERTIES);
+				out.push({ from: at(start.offset), to: at(start.offset) + node.property.length, severity: "warning", source: "CSS", message: `"${node.property}" is not a CSS property${best ? ` (did you mean "${best}"?)` : ""}` });
+			} else if (node.value.loc) {
+				const raw = src.slice(at(node.value.loc.start.offset), at(node.value.loc.end.offset));
+				const from = at(node.value.loc.start.offset) + (raw.length - raw.trimStart().length);
+				const value = raw.trim();
+				out.push({ from, to: from + value.length, severity: "warning", source: "CSS", message: `"${value}" is not a valid value for ${node.property}` });
+			}
+		}
+	});
+};
+
+const syntaxOf = (src, text, at, out, depth) => {
+	for (const m of missingColons(text, depth)) out.push({ from: at(m.at), to: at(m.to), severity: "error", source: "CSS", message: 'expected "property: value"' });
+};
+
+// ###################
+// style: "…", css.name: "…" and --name: "…" props
+// ###################
+const checkProps = (src, tokens, out) => {
+	for (const p of propCss(tokens)) {
+		const text = src.slice(p.from, p.to);
+		const at = (offset) => p.from + offset;
+		if (p.kind === "declarations") {
+			const before = out.length;
+			syntaxOf(src, text, at, out, 1);
+			if (out.length > before) continue;
+			const ast = parseCss(text, { context: "declarationList", positions: true, onParseError: (err) => out.push({ ...rangeAt(src, at(err.offset)), severity: "error", source: "CSS", message: err.message }) });
+			checkDeclarations(src, ast, at, () => false, out);
+			continue;
+		}
+		// ###################
+		// One value: ; { } would add other CSS (the compiler's error); css.name is checked against its property
+		// ###################
+		if (/[;{}]/.test(text)) {
+			out.push({ from: p.from, to: p.to, severity: "error", source: "CSS", message: `${p.key} can't contain ";", "{" or "}": it would add other CSS to the element` });
+			continue;
+		}
+		if (p.key.startsWith("--") || !text.trim() || p.name.startsWith("-")) continue;
+		if (!cssLexer.properties[p.name]) {
+			const best = closest(p.name, CSS_PROPERTIES);
+			out.push({ from: p.keyFrom, to: p.keyTo, severity: "warning", source: "CSS", message: `${p.key} is not a CSS property${best ? ` (did you mean css.${best}?)` : ""}` });
+			continue;
+		}
+		let value;
+		try {
+			value = parseCss(text, { context: "value", positions: true });
+		} catch {
+			continue;
+		}
+		if (cssLexer.matchProperty(p.name, value).error) {
+			const trimmed = text.trim();
+			const from = p.from + (text.length - text.trimStart().length);
+			out.push({ from, to: from + trimmed.length, severity: "warning", source: "CSS", message: `"${trimmed}" is not a valid value for ${p.name}` });
+		}
+	}
+};
+
+const checkCss = (src, out) => {
+	const tokens = rawTokens(src);
+	for (const region of cssRegions(tokens)) {
+		const { text, holes } = cssText(src, tokens, region);
+		const at = (offset) => region.from + offset;
+		const touchesCode = (from, to) => holes.some(([a, b]) => at(from) < b && a < at(to));
+		const braces = unbalanced(text);
+		for (const b of braces) out.push({ from: at(b.at), to: at(b.at) + 1, severity: "error", source: "CSS", message: b.message });
+		if (braces.length) continue;
+		const before = out.length;
+		syntaxOf(src, text, at, out, 0);
+		if (out.length > before) continue;
+
+		const ast = parseCss(text, {
+			positions: true,
+			onParseError: (err) => out.push({ ...rangeAt(src, at(err.offset)), severity: "error", source: "CSS", message: err.message })
+		});
+		checkDeclarations(src, ast, at, touchesCode, out);
+	}
+};
+
 const find = (src, rules) => {
 	const out = [];
 	let tokens;
@@ -274,6 +378,8 @@ const find = (src, rules) => {
 		out.push({ ...rangeAt(src, err.position ? offsets(src)(err.position) : 0), severity: "error", source: "ArcMoon", message: arcmoonMessage(err) });
 	}
 	checkCode(src, tokens, out, rules);
+	checkCss(src, out);
+	checkProps(src, rawTokens(src), out);
 	return out;
 };
 

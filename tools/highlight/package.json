@@ -1,6 +1,6 @@
 {
 	"name": "arcmoon-highlight",
-	"version": "1.1.0",
+	"version": "1.2.0",
 	"description": "Syntax highlighting for ArcMoon (.arcm): static HTML, and a live editor with CodeMirror 6.",
 	"type": "module",
 	"main": "./dist/index.js",
@@ -19,9 +19,9 @@
 	},
 	"peerDependencies": {
 		"@codemirror/commands": ">=6",
+		"@codemirror/lint": ">=6",
 		"@codemirror/state": ">=6",
-		"@codemirror/view": ">=6",
-		"@codemirror/lint": ">=6"
+		"@codemirror/view": ">=6"
 	},
 	"peerDependenciesMeta": {
 		"@codemirror/commands": {
@@ -39,16 +39,17 @@
 	},
 	"dependencies": {
 		"acorn": "^8.18.0",
+		"css-tree": "^3.2.1",
 		"js-tokens": "^10.0.0"
 	},
 	"devDependencies": {
 		"@codemirror/commands": "^6.10.3",
+		"@codemirror/lint": "^6.8.0",
 		"@codemirror/state": "^6.6.0",
 		"@codemirror/view": "^6.43.1",
 		"esbuild": "^0.28.2",
 		"jsdom": "^30.1.1",
-		"vitest": "^5.0.2",
-		"@codemirror/lint": "^6.8.0"
+		"vitest": "^5.0.2"
 	},
 	"keywords": [
 		"arcmoon",
