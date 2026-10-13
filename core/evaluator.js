@@ -156,11 +156,15 @@ const standalone = (nodes, isTop, removeComments, isComponent) => {
 		}
 		const before = out[k - 1];
 		const after = out[end + 1];
-		const lineStart = !before || (isText(before) && /(^|\n)[ \t]*$/.test(before.text) && (k - 1 > 0 || /\n[ \t]*$|^[ \t]*$/.test(before.text)));
+		// text with no line break only starts a line when nothing is before it, or a removed line was
+		const lineStart = !before || (isText(before) && (/\n[ \t]*$/.test(before.text) || (/^[ \t]*$/.test(before.text) && (k - 1 === 0 || before.afterRemoved))));
 		const lineEnd = !after || (isText(after) && /^[ \t]*(\r?\n|$)/.test(after.text));
 		if (lineStart && lineEnd) {
 			if (isText(before)) before.text = before.text.replace(/[ \t]*$/, "");
-			if (isText(after)) after.text = after.text.replace(/^[ \t]*\r?\n?/, "");
+			if (isText(after)) {
+				after.text = after.text.replace(/^[ \t]*\r?\n?/, "");
+				after.afterRemoved = true;
+			}
 			for (let j = k; j <= end; j++) if (isText(out[j])) out[j].text = "";
 		}
 		k = end + 1;

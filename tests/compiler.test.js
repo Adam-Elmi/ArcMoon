@@ -98,6 +98,8 @@ describe("compile: lines with no output", () => {
 	it("keeps lines where a ${ }$ outputs something, or other content shares the line", async () => {
 		expect(await compile(`\${ 1 + 1 }\$\n[p]a[end]`)).toBe(`2\n<p>a</p>`);
 		expect(await compile(`x \${ const a = 1; }\$\n[p]a[end]`)).toBe(`x \n<p>a</p>`);
+		expect(await compile(`[p]a[end] # note\n[p]b[end]`)).toBe(`<p>a</p> \n<p>b</p>`);
+		expect(await compile(`[p]a[end] \${ const a = 1; }\$\n[p]b[end]`)).toBe(`<p>a</p> \n<p>b</p>`);
 		expect(await compile(`[import = C: "./components/Card.arcm" !] [import = D: "./components/Bad.arcm" !]\n[p]a[end]`)).toBe(`<p>a</p>`);
 	});
 
