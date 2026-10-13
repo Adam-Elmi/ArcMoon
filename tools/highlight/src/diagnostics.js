@@ -262,6 +262,8 @@ const openLogic = (src, err, out, rules) => {
 // isn't checked: its value is only known when the page is built
 // ###################
 const CSS_PROPERTIES = Object.keys(cssLexer.properties);
+// var(), env() and attr() are only known in the browser; css-tree can't check values with them
+const RUNTIME_VALUE = /\b(?:var|env|attr)\(/i;
 
 // ###################
 // Each declaration's property and value; at() turns an offset in text into one in src
@@ -280,6 +282,7 @@ const checkDeclarations = (src, ast, at, touchesCode, out) => {
 				out.push({ from: at(start.offset), to: at(start.offset) + node.property.length, severity: "warning", source: "CSS", message: `"${node.property}" is not a CSS property${best ? ` (did you mean "${best}"?)` : ""}` });
 			} else if (node.value.loc) {
 				const raw = src.slice(at(node.value.loc.start.offset), at(node.value.loc.end.offset));
+				if (RUNTIME_VALUE.test(raw)) return;
 				const from = at(node.value.loc.start.offset) + (raw.length - raw.trimStart().length);
 				const value = raw.trim();
 				out.push({ from, to: from + value.length, severity: "warning", source: "CSS", message: `"${value}" is not a valid value for ${node.property}` });
@@ -320,6 +323,7 @@ const checkProps = (src, tokens, out) => {
 			out.push({ from: p.keyFrom, to: p.keyTo, severity: "warning", source: "CSS", message: `${p.key} is not a CSS property${best ? ` (did you mean css.${best}?)` : ""}` });
 			continue;
 		}
+		if (RUNTIME_VALUE.test(text)) continue;
 		let value;
 		try {
 			value = parseCss(text, { context: "value", positions: true });

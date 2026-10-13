@@ -309,6 +309,12 @@ describe("CSS", () => {
 		expect(diagnose(`[p = style: "color: red; margin: 0 auto", css.color: "#fff", --x: "anything"]x[end]`)).toEqual([]);
 	});
 
+	it("doesn't check values with var(), env() or attr()", () => {
+		expect(diagnose(`[style] .a { background: var(--c); animation: spin 1s var(--d) infinite; padding: env(safe-area-inset-top) } [end]`)).toEqual([]);
+		expect(diagnose(`[p = css.color: "var(--c)", css.width: "calc(var(--w) * 2)", style: "margin: var(--m)"]x[end]`)).toEqual([]);
+		expect(diagnose(`[style] .a { color: blu; background: var(--c) } [end]`).map((d) => d.text)).toEqual(["blu"]);
+	});
+
 	it("doesn't check what ArcMoon fills in, custom properties or vendor prefixes", () => {
 		expect(diagnose(`[style] .a { width: \${ w }\$px; --x: anything; -webkit-thing: 1; color: red } [end]`)).toEqual([]);
 	});
