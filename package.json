@@ -29,9 +29,6 @@
   "engines": {
     "node": ">=22.12"
   },
-  "publishConfig": {
-    "tag": "rc"
-  },
   "type": "module",
   "dependencies": {
     "@babel/code-frame": "^8.0.6",
