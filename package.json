@@ -82,6 +82,7 @@
     "node",
     "runtime",
     "cli",
-    "assets"
+    "assets",
+    "CHANGELOG.md"
   ]
 }
