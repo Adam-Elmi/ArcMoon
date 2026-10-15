@@ -77,7 +77,13 @@ export default async function loadModules(entry, host, options = {}) {
 			try {
 				src = await host.readFile(id);
 			} catch (err) {
-				fail(`can't read "${from ? from.node.path : id}" (${id}): ${err.message}`);
+				const path = from ? from.node.path : id;
+				// "@/x", "~/x", "#x", "$x" look like aliases (an npm scope can't be empty): say why it failed
+				const alias = /^(@(?=\/)|[~#$][^/]*)/.exec(path)?.[0];
+				if (from && alias && applyAlias(path) === path) {
+					fail(`can't read "${path}": "${alias}" isn't an import alias here. Aliases come from importAliases in arcmoon.config.js, which is only read from the folder where arcm runs`);
+				}
+				fail(`can't read "${path}" (${id}): ${err.message}`);
 			}
 		}
 

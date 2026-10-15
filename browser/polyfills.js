@@ -30,6 +30,8 @@ const fsFor = (host) => {
 // ###################
 // Put the modules where generated code can reach them
 // ###################
+const OURS = Symbol("arcmoon process");
+
 export function installNode(host, env = {}) {
 	const fs = fsFor(host);
 	globalThis.__arcmNode = {
@@ -47,7 +49,9 @@ export function installNode(host, env = {}) {
 		"fs/promises": { ...fs.promises, default: fs.promises }
 	};
 	// ###################
-	// process.env only has the values passed in; Node's real process is left alone
+	// process.env only has the values passed in, set fresh for each compile so one page's
+	// env never leaks into the next; Node's real process (tests) is left alone
 	// ###################
-	if (typeof globalThis.process === "undefined") globalThis.process = { env: { ...env } };
+	if (typeof globalThis.process === "undefined") globalThis.process = { env: {}, [OURS]: true };
+	if (globalThis.process[OURS]) globalThis.process.env = { ...env };
 }

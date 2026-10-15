@@ -151,6 +151,11 @@ describe("runtime", () => {
 
 	it.each([
 		[`\${ const secret = "x"; }\$[p]a[end]\nruntime \${ console.log(secret); }\$`, /uses "secret", which is not exported/],
+		[`runtime \${ const p = ArcMoon.props(); }\$`, /:1:22 {2}ArcMoon\.props\(\) only exists at build time; read props in \$\{ \}\$ and export what runtime code needs$/],
+		[`[p = title: runtime \${ ArcMoon.props().t }\$]x[end]`, /ArcMoon\.props\(\) only exists at build time/],
+		[`runtime \${ import { effectScope } from "arcmoon/reactive"; }\$`, /:1:21 {2}"effectScope" is not in arcmoon\/reactive; it has signal, computed and effect$/],
+		[`runtime \${ import { signal, efect } from "arcmoon/reactive"; }\$`, /"efect" is not in arcmoon\/reactive.*did you mean "effect"/],
+		[`runtime \${ import reactive from "arcmoon/reactive"; }\$`, /arcmoon\/reactive has no default export/],
 		[`\${ import { name } from "./data.json"; }\$[p]runtime \${ name }\$[end]`, /uses "name", which is not exported .*export \{ name \}/],
 		[`[b = arcm-ref: "my-btn"]x[end]\nruntime \${ ArcMoon.defineRef("my-bnt"); }\$`, /matches no arcm-ref .*did you mean "my-btn"/],
 		[`[b = arcm-ref: "x"]1[end][b = arcm-ref: "x"]2[end]\nruntime \${ ArcMoon.defineRef("x"); }\$`, /single ref "x" is attached to 2 elements/],

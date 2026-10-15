@@ -17,6 +17,21 @@ export class RuntimeError extends Error {
 	}
 }
 
+// ###################
+// arcmoon/reactive has only signal, computed and effect: anything else is an error at the import
+// ###################
+const REACTIVE = ["signal", "computed", "effect"];
+const checkReactive = (s, file, at) => {
+	for (const sp of s.specifiers) {
+		if (sp.type === "ImportNamespaceSpecifier") continue;
+		const name = sp.type === "ImportDefaultSpecifier" ? "default" : sp.imported.name ?? sp.imported.value;
+		if (REACTIVE.includes(name)) continue;
+		const best = name === "default" ? null : closest(name, REACTIVE);
+		const what = name === "default" ? "arcmoon/reactive has no default export" : `"${name}" is not in arcmoon/reactive`;
+		throw new RuntimeError(`${what}; it has signal, computed and effect${best ? ` (did you mean "${best}"?)` : ""}`, file, at(sp.loc.start));
+	}
+};
+
 const LARGE_VALUE = 50 * 1024;
 const isMarker = (v) => v !== null && typeof v === "object" && v.type === "runtime";
 const siteKey = (m) => `${m.range.start.line}:${m.range.start.character}`;
@@ -441,6 +456,10 @@ export default function prepareRuntime(result) {
 			walk(ast, (n, p) => {
 				const isArc = (name) => n.type === "CallExpression" && n.callee.type === "MemberExpression" &&
 					n.callee.object.name === "ArcMoon" && n.callee.property.name === name;
+				// props only exist at build time: read them in ${ }$ and export what the browser needs
+				if (isArc("props")) {
+					throw new RuntimeError("ArcMoon.props() only exists at build time; read props in ${ }$ and export what runtime code needs", f.id, at(marker, n.loc.start, live));
+				}
 				if (isArc("defineRef")) {
 					const arg = n.arguments[0];
 					if (!arg || arg.type !== "Literal" || typeof arg.value !== "string") {
@@ -473,6 +492,7 @@ export default function prepareRuntime(result) {
 				if (s.type === "ImportDeclaration") {
 					hoisted.add(b.code.slice(s.start, s.end));
 					if (!importAt.has(s.source.value)) importAt.set(s.source.value, at(b, s.source.loc.start));
+					if (s.source.value === "arcmoon/reactive") checkReactive(s, f.id, (loc) => at(b, loc));
 					edits.push(s);
 				} else if (/^Export/.test(s.type)) {
 					throw new RuntimeError("export is not allowed in runtime code", f.id, at(b, s.loc.start));

@@ -164,6 +164,22 @@ describe("compile: components", () => {
 		);
 	});
 
+	it("merges a passed class and style into the root's, and warns for other clashes", async () => {
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+		const html = await compile(`[import = Card: "./components/Card.arcm" !][Card = title: "T", class: "big card", style: "color: red", data-x: "1" !]`);
+		expect(flat(html)).toBe(`<div class="card card-gray big" style="color: red" data-x="1"><h2>T</h2></div>`);
+		expect(warn).not.toHaveBeenCalled();
+		warn.mockRestore();
+	});
+
+	it("keeps the root's own attribute when a passed prop clashes, with a warning", async () => {
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+		const html = await compile(`[import = IdBox: "./components/IdBox.arcm" !][IdBox = id: "mine"]x[end]`);
+		expect(flat(html)).toBe(`<section id="own">x</section>`);
+		expect(warn).toHaveBeenCalledWith(expect.stringContaining(`[IdBox] sets id on its <section> already, so the id passed to it is ignored`));
+		warn.mockRestore();
+	});
+
 	it("uses import aliases", async () => {
 		const html = await compile(`[import = Card: "@/Card.arcm" !][Card = title: "T" !]`, { importAliases: { "@": "./components" } });
 		expect(flat(html)).toBe(`<div class="card card-gray"><h2>T</h2></div>`);

@@ -23,6 +23,12 @@ const host = {
 const load = (src, options) => loadModules({ id: "/p/page.arcm", src }, host, options);
 
 describe("modules", () => {
+	it("says when an import looks like an alias that isn't set", async () => {
+		await expect(load(`[import = Card: "./Card.arcm" !]`)).rejects.toThrow(/"@" isn't an import alias here\. Aliases come from importAliases in arcmoon\.config\.js/);
+		await expect(load(`[import = X: "~ui/X.arcm" !]`)).rejects.toThrow(/"~ui" isn't an import alias here/);
+		await expect(load(`[import = X: "./Nope.arcm" !]`)).rejects.toThrow(/can't read "\.\/Nope\.arcm" \(\/p\/Nope\.arcm\): not found/);
+	});
+
 	it("loads the import tree and marks components", async () => {
 		const g = await load(`[import = Card: "./Card.arcm" !]\n[Card = title: "Hi"]Body[end:Card]`, { importAliases: { "@": "/p/lib" } });
 		expect([...g.modules.keys()].sort()).toEqual(["/p/Card.arcm", "/p/lib/Badge.arcm", "/p/page.arcm"]);

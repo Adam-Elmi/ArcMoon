@@ -575,12 +575,30 @@ export default async function evaluate(graph, options = {}) {
 		}
 	};
 
-	const fallThrough = (nodes, callerProps, readProps, directives) => {
+	// ###################
+	// Unread props go onto the root element. class and style are merged (the caller's
+	// style comes last, so it wins); any other prop the root already has keeps the root's
+	// value, with a warning
+	// ###################
+	const componentName = (childId) => String(childId).split(/[\\/]/).pop().replace(/\.arcm$/, "");
+	const fallThrough = (nodes, callerProps, readProps, directives, name) => {
 		const root = nodes.find((x) => x.type === "element");
 		if (!root) return;
 		for (const [k, v] of Object.entries(callerProps)) {
 			if (/^\d+$/.test(k) || (readProps && readProps.has(k)) || readProps === null) continue;
-			if (!(k in root.properties)) root.properties[k] = v;
+			if (!(k in root.properties)) {
+				root.properties[k] = v;
+				continue;
+			}
+			const own = root.properties[k];
+			if (own === v) continue;
+			if (typeof own === "string" && typeof v === "string" && k === "class") {
+				root.properties[k] = [...new Set(`${own} ${v}`.split(/\s+/).filter(Boolean))].join(" ");
+			} else if (typeof own === "string" && typeof v === "string" && k === "style") {
+				root.properties[k] = own.trim() ? `${own.trim().replace(/;?$/, ";")} ${v.trim()}` : v;
+			} else {
+				warn(root.data.source, root.data.position, `[${name}] sets ${k} on its <${root.tagName}> already, so the ${k} passed to it is ignored`);
+			}
 		}
 		Object.assign(root.data.directives, directives);
 	};
@@ -624,7 +642,7 @@ export default async function evaluate(graph, options = {}) {
 			export: (values) => Object.assign(use.values, values),
 			component: async (childId, childProps, childSlot, directives) => {
 				const nodes = await run(childId, childProps, childSlot, use.id);
-				fallThrough(nodes, childProps, compiled.get(childId).readProps, directives);
+				fallThrough(nodes, childProps, compiled.get(childId).readProps, directives, componentName(childId));
 				dropFinalBreak(nodes);
 				return nodes;
 			}
