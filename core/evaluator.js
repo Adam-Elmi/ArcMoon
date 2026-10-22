@@ -7,6 +7,7 @@ import { NODE_TYPES as N } from "./parser.js";
 import { COMPONENT } from "./modules.js";
 import scopeStyles from "./css.js";
 import { EvaluatorError } from "./errors.js";
+import { htmlTagName } from "./tags.js";
 
 const ID_RE = /^[A-Za-z_$][\w$]*$/;
 const ACORN = {
@@ -398,7 +399,7 @@ const generate = (mod, removeComments = true, isComponent = false) => {
 				props(node.props, isTop, el);
 				out(`; const __c${n} = [];\n{ const ArcMoon = __am.scope(__p${n});\n`);
 				children(node.body, `__c${n}`, false, { tag: node.id, keys: Object.keys(node.props) });
-				return out(`}\n${T}.push(__am.el(${JSON.stringify(node.id)}, __p${n}, __c${n}, ${JSON.stringify(node.directives)}, ${JSON.stringify(node.range.start)})); }\n`);
+				return out(`}\n${T}.push(__am.el(${JSON.stringify(htmlTagName(node.id))}, __p${n}, __c${n}, ${JSON.stringify(node.directives)}, ${JSON.stringify(node.range.start)})); }\n`);
 			case COMPONENT:
 				out(`{ const __p${n} = `);
 				props(node.props, isTop, el);
@@ -416,17 +417,40 @@ const generate = (mod, removeComments = true, isComponent = false) => {
 				children(node.body, T, isTop, el);
 				return out("}\n");
 			case N.FOR_EACH:
-				if (node.source.type === N.RUNTIME_LOGIC) fail("live [for-each] (runtime ${ }$) is not supported yet", node.range.start);
 				if (!ID_RE.test(node.as) || node.as === "i") fail(`as: "${node.as}" must be a valid JS name (not "i")`, node.range.start);
+				if (node.source.type === N.RUNTIME_LOGIC) return liveEach(node, T, isTop, el, n);
 				loopNames.add(node.as).add("i");
 				out(`{ const __src${n} = `);
 				value(node.source, isTop, el);
-				out(`;\nfor (const [i, ${node.as}] of Array.from(__src${n} ?? []).entries()) {\n`);
+				out(`;\nfor (const [i, ${node.as}] of __am.list(__src${n}, ${JSON.stringify(node.range.start)}).entries()) {\n`);
 				children(node.body, T, isTop, el);
 				return out("} }\n");
 			default:
 				fail(`unknown node ${node.type}`, node.range?.start);
 		}
+	};
+
+	// ###################
+	// Live [for-each]: the body is built once, as a <template> the browser clones per item.
+	// Its names (as, i) only exist in the browser: in ${ }$ they are an error.
+	// Components, a live [for-each] inside it and [slot] aren't supported yet
+	// ###################
+	const liveBodyCheck = (nodes) => {
+		for (const node of nodes) {
+			if (node.type === COMPONENT) fail(`[${node.name}] inside a live [for-each]: components aren't supported there yet. Write its markup in the loop`, node.range.start);
+			if (node.type === N.SLOT) fail("[slot] inside a live [for-each] isn't supported", node.range.start);
+			if (node.type === N.FOR_EACH && node.source.type === N.RUNTIME_LOGIC) fail("a live [for-each] inside another live [for-each] isn't supported yet", node.range.start);
+			if (node.body) liveBodyCheck(node.body);
+		}
+	};
+	const liveEach = (node, T, isTop, el, n) => {
+		if (node.key !== null && !node.key) fail("[for-each] key: must name a property of each item, like key: \"id\"", node.range.start);
+		liveBodyCheck(node.body);
+		out(`{ const __c${n} = [];\n{ const ${node.as} = __am.browserOnly(${JSON.stringify(node.as)}); const i = __am.browserOnly("i");\n`);
+		children(node.body, `__c${n}`, false, el);
+		out(`}\n${T}.push(__am.each(`);
+		value(node.source, isTop, el);
+		out(`, ${JSON.stringify(node.as)}, ${JSON.stringify(node.key)}, __c${n}, ${JSON.stringify(node.range.start)})); }\n`);
 	};
 
 	children(mod.ast, "__root", true);
@@ -498,6 +522,7 @@ export default async function evaluate(graph, options = {}) {
 	const warnings = [];
 	const warned = new Set();
 
+	const badLists = new Set();
 	const warn = (source, position, message) => {
 		const key = `${source}:${position.line}:${position.character}:${message}`;
 		if (warned.has(key)) return;
@@ -630,7 +655,36 @@ export default async function evaluate(graph, options = {}) {
 				children,
 				data: { directives: { ...directives }, use: use.id, source: id, position }
 			}),
+			// ###################
+			// [for-each]'s list (B29): null / undefined show nothing; something that isn't a list
+			// (a plain object, a number) warns once per loop and shows nothing
+			// ###################
+			list: (v, position) => {
+				if (v === null || v === undefined) return [];
+				if (typeof v[Symbol.iterator] === "function") return Array.from(v);
+				const key = `${id}:${position.line}:${position.character}`;
+				if (!badLists.has(key)) {
+					badLists.add(key);
+					warn(id, position, `[for-each] needs a list, but got ${typeof v === "object" ? "an object" : `a ${typeof v}`}, so it shows nothing; for an object use Object.entries(…), for a count use Array.from({ length: n }, (_, k) => k)`);
+				}
+				return [];
+			},
 			runtime: (code, range, kind, codeStart, afterWord = false) => ({ type: "runtime", code, range, kind, codeStart, afterWord, source: id, use: use.id }),
+			// a live [for-each]: a <template> holding the body; core/runtime.js turns it into rows
+			each: (marker, as, key, children, position) => ({
+				type: "element",
+				tagName: "template",
+				properties: {},
+				children,
+				data: { directives: {}, use: use.id, source: id, position, each: { marker, as, key } }
+			}),
+			// a live [for-each] name read by ${ }$: it only exists in the browser
+			browserOnly: (name) =>
+				new Proxy(Object.create(null), {
+					get() {
+						throw new ReferenceError(`"${name}" only exists in the browser, inside a live [for-each]: use runtime \${ ${name} }$, not \${ ${name} }$`);
+					}
+				}),
 			emit,
 			emitCheck: (T, v, label, position) => {
 				if (v === undefined) {

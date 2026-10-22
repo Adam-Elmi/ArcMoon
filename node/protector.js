@@ -76,6 +76,7 @@ const emptyReport = () => ({
 	runtimeBlocks: 0,
 	scriptTags: 0,
 	runtimeImports: new Set(),
+	runtimeRemote: new Set(),
 	exports: []
 });
 
@@ -269,6 +270,8 @@ const scanRuntime = (code, file, report, packages) => {
 			const name = packageName(n.source.value);
 			report.runtimeImports.add(name);
 			packages.add(name);
+		} else if ((n.type === "ImportDeclaration" || n.type === "ImportExpression") && /^https?:/.test(n.source.value ?? "")) {
+			report.runtimeRemote.add(n.source.value);
 		}
 	});
 };
@@ -503,11 +506,12 @@ export const formatReport = (g) => {
 	row("env", r.env);
 	row("remote", r.remote);
 	row("dynamic", r.dynamic);
-	if (r.runtimeBlocks || r.runtimeImports.size || r.scriptTags) {
+	if (r.runtimeBlocks || r.runtimeImports.size || r.runtimeRemote.size || r.scriptTags) {
 		const blocks = `${r.runtimeBlocks} runtime block${r.runtimeBlocks === 1 ? "" : "s"}`;
 		const tags = r.scriptTags ? `, ${r.scriptTags} [script] file${r.scriptTags === 1 ? "" : "s"}` : "";
 		const ships = r.runtimeImports.size ? `, ships ${[...r.runtimeImports].join(", ")} to visitors` : "";
-		rows.push(`    ${"runtime".padEnd(10)} ${blocks}${tags}${ships}`);
+		const loads = r.runtimeRemote.size ? `, loads ${[...r.runtimeRemote].join(", ")} in visitors' browsers` : "";
+		rows.push(`    ${"runtime".padEnd(10)} ${blocks}${tags}${ships}${loads}`);
 	}
 	row("exports", r.exports.map((e) => (e.fromEnv ? `${e.name} (from process.env!)` : e.name)));
 	if (!rows.length) rows.push("    (no code)");
@@ -526,7 +530,13 @@ export async function check(graph, options = {}) {
 	const text = untrusted
 		.map((g) => {
 			const changed = trusted[g.key] ? " has changed since it was trusted" : " is not trusted";
-			return `⚠ Template "${g.key}"${changed}. It would:\n${formatReport(g)}\n\n  Review it, then run "arcmoon trust ${g.key}".`;
+			// a key that climbs out of the project also shows where it is (1.1)
+			const where = g.key.startsWith("..") && g.dir ? ` (${g.dir})` : "";
+			// the page itself outside the folder where arcmoon runs: that's what makes it a template
+			const page = graph.entry && g.files.includes(graph.entry)
+				? `\n  ${graph.entry} is outside ${result.root}, so it counts as a template. To build it as your own file, run arcmoon from its folder.`
+				: "";
+			return `⚠ Template "${g.key}"${where}${changed}. It would:\n${formatReport(g)}\n\n  Review it, then run "arcmoon trust ${g.key}".${page}`;
 		})
 		.join("\n\n");
 	throw new ProtectorError(`${text}\n\n  Nothing was run.`, untrusted);

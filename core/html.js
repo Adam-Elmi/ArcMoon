@@ -137,7 +137,7 @@ export const toHast = (node, inSvg = false) => {
 		case "element": {
 			if (node.tagName.toLowerCase() === "doctype") {
 				if (node.children.length || Object.keys(node.properties).length) {
-					throw new CompilerError("[doctype] takes no props or body; write [doctype!]", "");
+					throw new CompilerError("[doctype] takes no props or body; write [doctype!]", node.data?.source ?? "", node.data?.position);
 				}
 				return { type: "doctype" };
 			}
@@ -262,4 +262,30 @@ export const safeInline = (js) => {
 // ###################
 export const addScriptSrc = (tree, src) => {
 	(bodyOf(tree) ?? tree).children.push({ type: "element", tagName: "script", properties: { type: "module", src }, children: [] });
+};
+
+// ###################
+// Non-ASCII text in a page with no <meta charset> (1.1): browsers may read the file in an old
+// encoding and show "×" as "Ã—". Returns a warning, or null
+// ###################
+export const charsetWarning = (tree, source) => {
+	let declared = false;
+	let sample = null;
+	const visit = (n) => {
+		if (declared) return;
+		if (n.type === "element") {
+			const tag = n.tagName.toLowerCase();
+			if (tag === "meta" && (n.properties.charset !== undefined || /charset=/i.test(String(n.properties.content ?? "")))) {
+				declared = true;
+				return;
+			}
+			if (tag === "script") return;
+			for (const v of Object.values(n.properties)) if (!sample && typeof v === "string") sample = /[^\x00-\x7f]/.exec(v)?.[0] ?? null;
+		}
+		if ((n.type === "text" || n.type === "raw") && !sample) sample = /[^\x00-\x7f]/.exec(n.value)?.[0] ?? null;
+		for (const c of n.children ?? []) visit(c);
+	};
+	visit(tree);
+	if (declared || !sample) return null;
+	return { source, position: null, message: `the page has non-ASCII text (like "${sample}") but no <meta charset="utf-8">, so browsers may show it wrong (like "Ã—" for "×"). Add [meta = charset: "utf-8" !] at the top of the page (inside [head] if it has one)` };
 };

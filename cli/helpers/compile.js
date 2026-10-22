@@ -12,6 +12,7 @@ const options = (filename, config, dev = false) => ({
 	removeComments: config.removeComments ?? true,
 	timeout: config.timeout ?? 5000,
 	bundle: config.bundle ?? [],
+	packages: config.packages ?? {},
 	cwd: process.cwd(),
 	dev,
 	onWarning: reportWarning
@@ -27,9 +28,11 @@ export const build = (filenames, config, outDir, dev) =>
 	buildPages(filenames.map((f) => options(f, config, dev)), {
 		cwd: process.cwd(),
 		outDir,
+		siteDir: config.outDir ?? "./dist",
 		assetsDir: config.assetsDir ?? "assets",
 		base: config.base,
 		bundle: config.bundle ?? [],
+		packages: config.packages ?? {},
 		externalScripts: config.externalScripts ?? false,
 		externalStyles: config.externalStyles ?? false,
 		dev,

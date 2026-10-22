@@ -14,7 +14,7 @@ import bundleStyles from "./styles.js";
 import { collectStyles, addStyle, addStyleHref } from "../core/css.js";
 import { check } from "./protector.js";
 import unknownTags from "../core/tags.js";
-import { toHast, addScript, addScriptSrc, writeExact, CompilerError, formatWarning } from "../core/html.js";
+import { toHast, addScript, addScriptSrc, writeExact, CompilerError, formatWarning, charsetWarning } from "../core/html.js";
 
 export { CompilerError };
 import pkg from "../package.json" with { type: "json" };
@@ -68,22 +68,28 @@ const evaluatePage = async (options) => {
 	await check(graph, { root });
 	const result = await evaluate(graph, { props, removeComments, timeout, version: pkg.version, cwd, worker });
 	result.warnings.forEach((w) => onWarning(w));
+	const charset = charsetWarning(result.tree, graph.entry);
+	if (charset) onWarning(charset);
 	return result;
 };
 
 // ###################
-// URL of a bundled file from a page: relative to the page, or from base
+// URL of a bundled file from a page: relative to the page, or from base. siteDir is the
+// project's outDir: a build into a folder under it (-o dist/blog) adds that folder to base (B35)
 // ###################
-const urlOf = (file, name, { outDir, base }) => {
+const urlOf = (file, name, { outDir, base, siteDir = outDir }) => {
+	const under = relative(siteDir, outDir);
+	const prefix = under && !under.startsWith("..") && !isAbsolute(under) ? `${under.split(sep).join("/")}/` : "";
 	const path = base
-		? `${base.replace(/\/?$/, "/")}${relative(outDir, file).split(sep).join("/")}`
+		? `${base.replace(/\/?$/, "/")}${prefix}${relative(outDir, file).split(sep).join("/")}`
 		: relative(dirname(resolve(outDir, `${name}.html`)), file).split(sep).join("/");
 	return path.startsWith(".") || path.startsWith("/") ? path : `./${path}`;
 };
 
 // ###################
 // Many pages at once
-// shared: { outDir, assetsDir, base, bundle, cwd, externalScripts, externalStyles, dev }
+// shared: { outDir, siteDir, assetsDir, base, bundle, packages, cwd, externalScripts, externalStyles, dev }
+//   siteDir: the project's outDir, when outDir is a folder under it (base gets that folder)
 //   dev: runtime JS not minified, with source maps to the .arcm files
 //   externalScripts (default true): JS as separate files with shared chunks, else inside each page
 //   externalStyles (default false): CSS as separate files, else a <style> in each page
@@ -93,8 +99,9 @@ const urlOf = (file, name, { outDir, base }) => {
 export async function buildPages(list, shared = {}) {
 	const cwd = shared.cwd ?? process.cwd();
 	const outDir = resolve(cwd, shared.outDir ?? ".");
+	const siteDir = resolve(cwd, shared.siteDir ?? shared.outDir ?? ".");
 	const assetsDir = shared.assetsDir ?? "assets";
-	const { externalScripts = true, externalStyles = false, bundle = [], dev = false } = shared;
+	const { externalScripts = true, externalStyles = false, bundle = [], packages = {}, dev = false } = shared;
 
 	const pages = [];
 	for (const options of list) {
@@ -107,7 +114,7 @@ export async function buildPages(list, shared = {}) {
 			page.prepared = prepareRuntime(result);
 			page.prepared.warnings.forEach((w) => onWarning(w));
 		} else {
-			const { js, warnings } = await buildRuntime(result, { bundle, version: pkg.version, cwd, dev });
+			const { js, warnings } = await buildRuntime(result, { bundle, packages, version: pkg.version, cwd, dev });
 			warnings.forEach((w) => onWarning(w));
 			page.js = js;
 		}
@@ -118,17 +125,17 @@ export async function buildPages(list, shared = {}) {
 	const sharedWarning = shared.onWarning ?? defaultWarning;
 	for (const { page, ...w } of styles.warnings) (page === null ? sharedWarning : pages[page].onWarning)(w);
 	const scripts = externalScripts
-		? await bundlePages(pages, { bundle, version: pkg.version, cwd, outDir, assetsDir, dev })
+		? await bundlePages(pages, { bundle, packages, version: pkg.version, cwd, outDir, assetsDir, dev })
 		: { entries: new Map(), files: [] };
 
 	return {
 		pages: pages.map(({ name, result, js }) => {
 			if (styles.css.has(name)) addStyle(result.tree, styles.css.get(name));
-			if (styles.entries.has(name)) addStyleHref(result.tree, urlOf(styles.entries.get(name), name, { outDir, base: shared.base }));
+			if (styles.entries.has(name)) addStyleHref(result.tree, urlOf(styles.entries.get(name), name, { outDir, base: shared.base, siteDir }));
 			const tree = toHast(result.tree);
 			if (js) addScript(tree, js);
 			const entry = scripts.entries.get(name);
-			if (entry) addScriptSrc(tree, urlOf(entry, name, { outDir, base: shared.base }));
+			if (entry) addScriptSrc(tree, urlOf(entry, name, { outDir, base: shared.base, siteDir }));
 			return { name, html: writeExact(toHtml(tree, HTML_OPTIONS), tree) };
 		}),
 		files: [...styles.files, ...scripts.files]
@@ -145,12 +152,12 @@ export default class ArcMoon {
 	// url() files in CSS are left as written (there is nowhere to copy them)
 	// ###################
 	async compile() {
-		const { bundle = [], cwd = process.cwd(), onWarning = defaultWarning, dev = false } = this.options;
+		const { bundle = [], packages = {}, cwd = process.cwd(), onWarning = defaultWarning, dev = false } = this.options;
 		const result = await evaluatePage(this.options);
 		const { css, warnings: cssWarnings } = await bundleStyles([{ name: "page", pieces: collectStyles(result.tree) }], { cwd, copyAssets: false });
 		cssWarnings.forEach(({ page, ...w }) => onWarning(w));
 		if (css.has("page")) addStyle(result.tree, css.get("page"));
-		const { js, warnings } = await buildRuntime(result, { bundle, version: pkg.version, cwd, dev });
+		const { js, warnings } = await buildRuntime(result, { bundle, packages, version: pkg.version, cwd, dev });
 		warnings.forEach((w) => onWarning(w));
 		const tree = toHast(result.tree);
 		if (js) addScript(tree, js);
@@ -161,7 +168,7 @@ export default class ArcMoon {
 	// HTML plus files: { html, files: [{ path, contents }] }
 	// ###################
 	async build(shared = {}) {
-		const { pages, files } = await buildPages([this.options], { bundle: this.options.bundle, cwd: this.options.cwd, dev: this.options.dev, ...shared });
+		const { pages, files } = await buildPages([this.options], { bundle: this.options.bundle, packages: this.options.packages, cwd: this.options.cwd, dev: this.options.dev, ...shared });
 		return { html: pages[0].html, files };
 	}
 }

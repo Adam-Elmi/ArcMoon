@@ -85,6 +85,12 @@ export const run = (fn, use, dom = pageDom) => {
 				const node = document.createTextNode("");
 				mark.after(node);
 				bind(node);
+			} else if (target.each) {
+				// ###################
+				// A live [for-each]: its <template>, the row targets and the key (runtime/reactive.js each)
+				// ###################
+				const template = dom.byRef(target.id)[0];
+				if (template) bind({ template, id: target.id, key: target.key, inner: target.inner, setAttr });
 			} else {
 				const el = dom.byRef(target.id)[0];
 				if (el) bind(el);
@@ -92,9 +98,14 @@ export const run = (fn, use, dom = pageDom) => {
 		}
 	};
 
+	// ###################
+	// A file whose runtime code awaits at its top level runs as an async function: its errors
+	// arrive later, as a rejected promise
+	// ###################
+	const failed = (err) => console.error(`ArcMoon runtime error in ${use.file}`, err);
 	try {
-		fn(ArcMoon, use.values, live, setAttr);
+		fn(ArcMoon, use.values, live, setAttr)?.catch?.(failed);
 	} catch (err) {
-		console.error(`ArcMoon runtime error in ${use.file}`, err);
+		failed(err);
 	}
 };

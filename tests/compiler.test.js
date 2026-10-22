@@ -208,7 +208,8 @@ describe("compile: unknown tag warnings", () => {
 	it("warns when a capitalized block that isn't imported is written as HTML", async () => {
 		expect(await warnings(`[A !][B]x[end][a]y[end][Doctype !]`)).toEqual([
 			`1:1  [A] is not imported; it is written as <a>. Did you forget [import = A: "./A.arcm" !]?`,
-			`1:6  [B] is not imported; it is written as <b>. Did you forget [import = B: "./B.arcm" !]?`
+			`1:6  [B] is not imported; it is written as <b>. Did you forget [import = B: "./B.arcm" !]?`,
+			`1:24  [doctype!] comes after other content (line 1); it must be first, or browsers draw the page in quirks mode`
 		]);
 	});
 

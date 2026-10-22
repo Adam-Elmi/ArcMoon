@@ -68,6 +68,14 @@ describe("build() and buildPages()", () => {
 		const { html } = await new ArcMoon({ src: `runtime \${ window.__n = 1; }\$`, cwd: FIXTURES, name: "x" }).build({ outDir: "out", base: "/static" });
 		expect(html).toMatch(/src="\/static\/assets\/x-[A-Z0-9]+\.js"/);
 	});
+
+	it("adds the folder under the project's outDir to base (B35: -o dist/blog)", async () => {
+		const page = { src: `runtime \${ window.__n = 1; }\$`, cwd: FIXTURES, name: "post" };
+		const { pages } = await buildPages([page], { cwd: FIXTURES, outDir: "dist/blog", siteDir: "dist", base: "/" });
+		expect(pages[0].html).toMatch(/src="\/blog\/assets\/post-[A-Z0-9]+\.js"/);
+		const outside = await buildPages([page], { cwd: FIXTURES, outDir: "elsewhere", siteDir: "dist", base: "/" });
+		expect(outside.pages[0].html).toMatch(/src="\/assets\/post-[A-Z0-9]+\.js"/);
+	});
 });
 
 describe("dev builds", () => {

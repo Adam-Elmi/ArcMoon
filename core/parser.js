@@ -182,7 +182,7 @@ export default function parser(tokens) {
 		}
 
 		if (kind === T.SLOT) {
-			return { type: N.SLOT, body, range };
+			return { type: N.SLOT, props, body, range };
 		}
 
 		if (kind === T.FOR_EACH) {
@@ -193,7 +193,7 @@ export default function parser(tokens) {
 			}
 			if (props.as !== undefined && typeof props.as !== "string") fail("[for-each] as: must be a quoted name", at);
 			if (props.key !== undefined && typeof props.key !== "string") fail("[for-each] key: must be a quoted name", at);
-			return { type: N.FOR_EACH, source, as: props.as ?? "value", key: props.key ?? null, body, range };
+			return { type: N.FOR_EACH, source, as: props.as ?? "value", key: props.key ?? null, props, body, range };
 		}
 
 		return { type: N.BLOCK, id, props, directives, isSelfClosing, body, range };

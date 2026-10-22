@@ -33,6 +33,18 @@ const checkReactive = (s, file, at) => {
 };
 
 const LARGE_VALUE = 50 * 1024;
+
+// ###################
+// await outside any function (await x, for await …): in a block it makes the file's runtime
+// function async (1.1); in a live value it is an error
+// ###################
+const topAwait = (ast) => {
+	let found = null;
+	walk(ast, (n) => {
+		if (!found && (n.type === "AwaitExpression" || (n.type === "ForOfStatement" && n.await))) found = n;
+	}, null, true);
+	return found;
+};
 const isMarker = (v) => v !== null && typeof v === "object" && v.type === "runtime";
 const siteKey = (m) => `${m.range.start.line}:${m.range.start.character}`;
 
@@ -213,6 +225,80 @@ const toJS = (v, name, seen = new Set()) => {
 
 const fileName = (id) => id.split(/[\\/]/).pop();
 
+// ###################
+// Live [for-each] rows at build time
+// ###################
+
+// a value written as a literal in the code ([{ id: 1, title: "x" }], -2, `text`); NO when it isn't one
+const NO = Symbol("not a literal");
+const literalValue = (n) => {
+	switch (n.type) {
+		case "Literal":
+			return n.regex ? NO : n.value;
+		case "TemplateLiteral":
+			return n.expressions.length ? NO : n.quasis[0].value.cooked;
+		case "Identifier":
+			return n.name === "undefined" ? undefined : NO;
+		case "UnaryExpression": {
+			const v = n.operator === "-" || n.operator === "+" ? literalValue(n.argument) : NO;
+			return typeof v === "number" ? (n.operator === "-" ? -v : v) : NO;
+		}
+		case "ArrayExpression": {
+			const out = [];
+			for (const e of n.elements) {
+				const v = e && e.type !== "SpreadElement" ? literalValue(e) : NO;
+				if (v === NO) return NO;
+				out.push(v);
+			}
+			return out;
+		}
+		case "ObjectExpression": {
+			const out = {};
+			for (const q of n.properties) {
+				if (q.type !== "Property" || q.computed || q.kind !== "init" || q.method || q.shorthand) return NO;
+				const v = literalValue(q.value);
+				if (v === NO) return NO;
+				out[q.key.type === "Identifier" ? q.key.name : String(q.key.value)] = v;
+			}
+			return out;
+		}
+		default:
+			return NO;
+	}
+};
+
+const cloneNodes = (nodes) =>
+	nodes.map((n) => ({
+		...n,
+		...(n.properties ? { properties: { ...n.properties } } : {}),
+		...(n.data ? { data: { ...n.data } } : {}),
+		...(n.children ? { children: cloneNodes(n.children) } : {})
+	}));
+
+// put one row value into a cloned row: live text after its <!--arcm:id-->, or an attribute
+const fillRow = (nodes, target, v) => {
+	for (let k = 0; k < nodes.length; k++) {
+		const node = nodes[k];
+		if (target.text && node.type === "comment" && node.value === `arcm:${target.id}`) {
+			nodes[k + 1].value = String(v ?? "");
+			return true;
+		}
+		if (node.type !== "element") continue;
+		if (!target.text && node.properties["data-arcm-in"] === target.id) {
+			if (v === null || v === undefined || v === false) delete node.properties[target.attr];
+			else node.properties[target.attr] = v === true ? true : String(v);
+			return true;
+		}
+		if (fillRow(node.children, target, v)) return true;
+	}
+	return false;
+};
+
+// globals a row value may use and still be worked out at build time (no Date or Intl:
+// their output depends on the computer's time zone and language)
+const PLAIN = new Set(["Math", "String", "Number", "Boolean", "Array", "Object", "JSON", "parseInt", "parseFloat", "isNaN", "isFinite", "encodeURIComponent", "encodeURI", "undefined", "NaN", "Infinity"]);
+const CHANGES = /^(AssignmentExpression|UpdateExpression|ThisExpression|AwaitExpression|YieldExpression|ImportExpression|NewExpression|TaggedTemplateExpression|MetaProperty|Super)$/;
+
 const suggest = (name, names) => {
 	const best = closest(name, names);
 	return best ? ` (did you mean "${best}"?)` : "";
@@ -287,7 +373,7 @@ export default function prepareRuntime(result) {
 	const warnings = [];
 
 	const scripts = [];
-	const perUse = uses.map((u) => ({ ...u, blocks: new Map(), live: new Map(), attached: new Map(), children: [] }));
+	const perUse = uses.map((u) => ({ ...u, blocks: new Map(), live: new Map(), attached: new Map(), each: new Map(), children: [] }));
 	for (const u of perUse) if (u.parent !== null) perUse[u.parent].children.push(u.id);
 
 	let elementCount = 0;
@@ -310,6 +396,68 @@ export default function prepareRuntime(result) {
 	};
 	const initialTargets = [];
 	const styles = [];
+
+	// ###################
+	// The browser's setAttribute refuses these names; say so at build time
+	// ###################
+	const checkAttr = (key, node, u) => {
+		if (!key || /[\s"'>/=\x00-\x1f\x7f]/.test(key)) {
+			const what = key ? `can't contain spaces, quotes, ">", "/", "=" or control characters` : "can't be empty";
+			throw new RuntimeError(`${JSON.stringify(key)} on [${node.tagName}] is not a valid attribute name: it ${what}`, node.data.source ?? u.module, node.data.position);
+		}
+	};
+
+	// ###################
+	// Live [for-each]: elements with row values get data-arcm-in (not data-arcm-ref, so
+	// render() leaves them alone); the browser finds them inside each row
+	// ###################
+	const eachSites = [];
+	const innerId = (node) => {
+		if (!node.data.innerId) {
+			node.data.innerId = `e${elementCount++}`;
+			node.properties["data-arcm-in"] = node.data.innerId;
+		}
+		return node.data.innerId;
+	};
+	const visitRow = (children, u, inner, parentTag) => {
+		for (let k = 0; k < children.length; k++) {
+			const node = children[k];
+			if (node.type === "runtime") {
+				const id = `t${elementCount++}`;
+				node.where = parentTag ? `inside [${parentTag}]` : "in markup";
+				children.splice(k, 1, { type: "comment", value: `arcm:${id}` }, { type: "text", value: "" }, { type: "comment", value: "/arcm" });
+				k += 2;
+				inner.push({ marker: node, target: { id, text: true } });
+				continue;
+			}
+			if (node.type !== "element") continue;
+			const where = node.data.source ?? u.module;
+			if (node.tagName.toLowerCase() === "script") throw new RuntimeError("[script] inside a live [for-each] isn't supported", where, node.data.position);
+			const { directives } = node.data;
+			if (directives.ref !== undefined) {
+				throw new RuntimeError(`arcm-ref on [${node.tagName}] inside a live [for-each] would be on every row; use arcm-shared-ref and ArcMoon.refs()`, where, node.data.position);
+			}
+			const shared = directives["shared-ref"];
+			if (shared !== undefined) {
+				if (typeof shared !== "string" || !shared) throw new RuntimeError(`arcm-ref on [${node.tagName}] must be a quoted name`, where, node.data.position);
+				const seen = u.attached.get(shared);
+				if (seen && !seen.shared) throw new RuntimeError(`single ref "${shared}" is attached to 2 elements; use arcm-shared-ref`, where, node.data.position);
+				if (!seen) u.attached.set(shared, { name: shared, id: `${shared}-u${u.id}`, shared: true, used: false });
+				node.properties["data-arcm-ref"] = u.attached.get(shared).id;
+			}
+			for (const [key, value] of Object.entries(node.properties)) {
+				if (!isMarker(value)) continue;
+				checkAttr(key, node, u);
+				delete node.properties[key];
+				value.where = `for "${key}" on [${node.tagName}]`;
+				inner.push({ marker: value, target: { id: innerId(node), attr: key } });
+			}
+			if (node.tagName.toLowerCase() === "style" && node.children.some((c) => c.type === "runtime")) {
+				throw new RuntimeError("live text in a [style] inside a live [for-each] isn't supported; use a -- prop on an element", where, node.data.position);
+			}
+			visitRow(node.children, u, inner, node.tagName);
+		}
+	};
 
 	const addLive = (marker, target) => {
 		const u = perUse[marker.use];
@@ -344,6 +492,24 @@ export default function prepareRuntime(result) {
 			if (node.type !== "element") continue;
 
 			// ###################
+			// A live [for-each]: <!--arcm-each:id--> marks where its rows start; rows go before
+			// its <template> (written at build time in step 6 when the first list is known)
+			// ###################
+			if (node.data.each) {
+				const u = perUse[node.data.use];
+				const { marker, as, key } = node.data.each;
+				const id = ownId(node);
+				const inner = [];
+				visitRow(node.children, u, inner, null);
+				marker.where = "as the list of a live [for-each]";
+				children.splice(k++, 0, { type: "comment", value: `arcm-each:${id}` });
+				addLive(marker, { id, each: true, key, inner: inner.map((x) => x.target) });
+				u.each.set(siteKey(marker), { as, key, inner: inner.map((x) => x.marker) });
+				eachSites.push({ marker, key, node, children, inner, u });
+				continue;
+			}
+
+			// ###################
 			// [script = src: "./app.js"] with a local file joins the page's bundle
 			// ###################
 			const src = node.properties.src;
@@ -376,13 +542,7 @@ export default function prepareRuntime(result) {
 
 			for (const [key, value] of Object.entries(node.properties)) {
 				if (!isMarker(value)) continue;
-				// ###################
-				// The browser's setAttribute refuses these names; say so at build time
-				// ###################
-				if (!key || /[\s"'>/=\x00-\x1f\x7f]/.test(key)) {
-					const what = key ? `can't contain spaces, quotes, ">", "/", "=" or control characters` : "can't be empty";
-					throw new RuntimeError(`${JSON.stringify(key)} on [${node.tagName}] is not a valid attribute name: it ${what}`, node.data.source ?? u.module, node.data.position);
-				}
+				checkAttr(key, node, u);
 				delete node.properties[key];
 				value.where = `for "${key}" on [${node.tagName}]`;
 				const target = addLive(value, { id: ownId(node), attr: key });
@@ -418,12 +578,14 @@ export default function prepareRuntime(result) {
 		if (files.has(id)) return files.get(id);
 		const blocks = new Map();
 		const sites = new Map();
+		const each = new Map();
 		for (const u of perUse) {
 			if (u.module !== id) continue;
 			for (const [k, b] of u.blocks) blocks.set(k, b);
 			for (const [k, s] of u.live) sites.set(k, s.marker);
+			for (const [k, e] of u.each) if (!each.has(k)) each.set(k, e);
 		}
-		const f = { id, blocks: [...blocks.values()], sites: [...sites.entries()], parsed: null };
+		const f = { id, blocks: [...blocks.values()], sites: [...sites.entries()], each, parsed: null };
 		files.set(id, f);
 		return f;
 	};
@@ -449,8 +611,12 @@ export default function prepareRuntime(result) {
 		const refsDefined = new Map();
 		const refCalls = [];
 		const signals = new Map();
+		const signalInits = new Map();
+		const reactive = new Set();
 		const bodies = [];
 		const lives = [];
+		const rowLives = [];
+		let awaits = false;
 
 		const scan = (ast, marker, live = false) => {
 			walk(ast, (n, p) => {
@@ -499,8 +665,10 @@ export default function prepareRuntime(result) {
 				} else if (s.type === "VariableDeclaration") {
 					for (const d of s.declarations) {
 						const init = d.init;
+						if (d.id.type === "Identifier" && init?.type === "CallExpression" && (init.callee.name === "signal" || init.callee.name === "computed")) reactive.add(d.id.name);
 						if (d.id.type === "Identifier" && init?.type === "CallExpression" && init.callee.name === "signal" && init.arguments.length === 1) {
 							const a = init.arguments[0];
+							signalInits.set(d.id.name, a);
 							if (a.type === "Literal" && !a.regex) signals.set(d.id.name, { value: a.value });
 							else if (a.type === "Identifier") signals.set(d.id.name, { from: a.name });
 						}
@@ -508,12 +676,13 @@ export default function prepareRuntime(result) {
 				}
 			}
 			for (const s of edits.reverse()) code = code.slice(0, s.start) + code.slice(s.start, s.end).replace(/[^\n]/g, " ") + code.slice(s.end);
+			if (topAwait(ast)) awaits = true;
 			topDeclared(ast, declared);
 			scan(ast, b);
 			bodies.push({ code, ast, marker: b });
 		}
 
-		f.sites.forEach(([key, marker], index) => {
+		const parseLive = (marker) => {
 			let ast;
 			try {
 				ast = acorn.parse(`(${marker.code}\n)`, ACORN);
@@ -524,8 +693,21 @@ export default function prepareRuntime(result) {
 					at(marker)
 				);
 			}
+			const waits = topAwait(ast);
+			if (waits) {
+				throw new RuntimeError(`await can't be used in a live value (runtime \${ }$ ${marker.where ?? "in markup"}): live values update at once. Await in a runtime \${ }$ block at the top level of the file, and put the result in a signal`, f.id, at(marker, waits.loc.start, true));
+			}
 			scan(ast, marker, true);
-			lives.push({ key, index, marker, ast, expr: ast.body[0].expression });
+			return { marker, ast, expr: ast.body[0].expression };
+		};
+		f.sites.forEach(([key, marker], index) => {
+			const loop = f.each.get(key);
+			// ###################
+			// A live [for-each]'s row values: its names (as, i) are theirs
+			// ###################
+			const each = loop ? { as: loop.as, key: loop.key, inner: loop.inner.map((m) => ({ ...parseLive(m), row: new Set([loop.as, "i"]) })) } : null;
+			if (each) rowLives.push(...each.inner);
+			lives.push({ key, index, ...parseLive(marker), each });
 		});
 
 		// ###################
@@ -537,11 +719,12 @@ export default function prepareRuntime(result) {
 		// ###################
 		const used = new Set();
 		const usedIn = new Map();
-		for (const x of [...bodies, ...lives]) {
+		for (const x of [...bodies, ...lives, ...rowLives]) {
 			for (const [name, id] of freeNames(x.ast)) {
+				if (x.row?.has(name)) continue;
 				used.add(name);
 				if (usedAt.has(name)) continue;
-				usedAt.set(name, at(x.marker, id.loc.start, lives.includes(x)));
+				usedAt.set(name, at(x.marker, id.loc.start, !bodies.includes(x)));
 				usedIn.set(name, x.marker);
 			}
 		}
@@ -569,9 +752,9 @@ export default function prepareRuntime(result) {
 		// ###################
 		// A live value using an unknown name close to a declared one: likely a typo
 		// ###################
-		for (const l of lives) {
+		for (const l of [...lives, ...rowLives]) {
 			for (const name of freeNames(l.ast).keys()) {
-				if (declared.has(name) || info.staticNames.has(name) || name === "ArcMoon" || name in globalThis) continue;
+				if (l.row?.has(name) || declared.has(name) || info.staticNames.has(name) || name === "ArcMoon" || name in globalThis) continue;
 				const best = closest(name, [...declared]);
 				if (!best) continue;
 				const pos = usedAt.get(name) ?? at(l.marker);
@@ -579,7 +762,25 @@ export default function prepareRuntime(result) {
 			}
 		}
 
-		f.parsed = { hoisted, bodies, lives, values, refsDefined, refCalls, signals, importAt, usedAt };
+		// ###################
+		// A signal shown without () (B41): the page would show the function, or a list nothing
+		// ###################
+		for (const l of [...lives, ...rowLives]) {
+			const e = l.expr;
+			if (e?.type !== "Identifier" || !reactive.has(e.name) || l.row?.has(e.name) || /^for "on/i.test(l.marker.where ?? "")) continue;
+			warnings.push({ source: f.id, position: at(l.marker, e.loc.start, true), message: `"${e.name}" is a signal; read it with ${e.name}()` });
+		}
+
+		// ###################
+		// Names this file's code reads but nothing here declares (for B42, across files)
+		// ###################
+		const unknown = new Map();
+		for (const name of used) {
+			if (declared.has(name) || info.staticNames.has(name) || name === "ArcMoon" || name in globalThis) continue;
+			unknown.set(name, usedAt.get(name));
+		}
+
+		f.parsed = { hoisted, bodies, lives, values, refsDefined, refCalls, signals, signalInits, importAt, usedAt, awaits, declared, unknown };
 		return f.parsed;
 	};
 
@@ -588,7 +789,7 @@ export default function prepareRuntime(result) {
 	// map: true adds a source map back to the .arcm file (dev builds)
 	// ###################
 	const sourceOf = (f, { map = false, name = f.id } = {}) => {
-		const { hoisted, bodies, lives, values } = f.parsed;
+		const { hoisted, bodies, lives, values, awaits } = f.parsed;
 		const lines = [...hoisted];
 		const mapped = [];
 		const add = (code, marker, column = 0) => {
@@ -596,13 +797,48 @@ export default function prepareRuntime(result) {
 			if (start) mapped.push({ line: lines.length, start, column });
 			lines.push(code);
 		};
-		if (lives.length) lines.push(`import { effect as __effect } from "arcmoon/reactive";`);
-		lines.push("export default function (ArcMoon, __values, __live, __setAttr) {");
+		// ###################
+		// Event props are plain listeners: a file whose live values are all events doesn't
+		// load arcmoon/reactive (B25)
+		// ###################
+		const isEvent = (l) => {
+			const t = perUse.flatMap((u) => u.live.get(l.key)?.targets ?? [])[0];
+			return Boolean(t && !t.text && !t.each && /^on/i.test(t.attr ?? ""));
+		};
+		if (lives.some((l) => !isEvent(l))) lines.push(`import { effect as __effect${lives.some((l) => l.each) ? ", each as __each" : ""} } from "arcmoon/reactive";`);
+		lines.push(`export default ${awaits ? "async " : ""}function (ArcMoon, __values, __live, __setAttr) {`);
 		if (values.length) lines.push(`const { ${values.join(", ")} } = __values;`);
 		for (const b of bodies) add(b.code, b.marker);
 		for (const l of lives) {
 			const expr = l.marker.code;
 			const first = perUse.flatMap((u) => u.live.get(l.key)?.targets ?? [])[0];
+			// ###################
+			// A live [for-each]: __each keeps one row per item; each row value reads the row's
+			// item and index (signals), so it updates when the list changes
+			// ###################
+			if (l.each) {
+				const head = `__live(${l.index}, (__spot) => __each(__spot, () => (`;
+				add(`${head}${expr}), (__row, __in) => {`, l.marker, head.length);
+				const names = `const ${l.each.as} = __row.item(), i = __row.index();`;
+				l.each.inner.forEach((x, j) => {
+					const t = first.inner[j];
+					let h;
+					let tail;
+					if (t.text) {
+						h = `__in(${j}, (__node) => __effect(() => { ${names} __node.data = String((`;
+						tail = `) ?? ""); }));`;
+					} else if (/^on/i.test(t.attr)) {
+						h = `__in(${j}, (__el) => { __el.addEventListener(${JSON.stringify(t.attr.slice(2).toLowerCase())}, function (__e) { ${names} return (`;
+						tail = `).call(this, __e); }); });`;
+					} else {
+						h = `__in(${j}, (__el) => __effect(() => { ${names} __setAttr(__el, ${JSON.stringify(t.attr)}, (`;
+						tail = `)); }));`;
+					}
+					add(h + x.marker.code + tail, x.marker, h.length);
+				});
+				lines.push("}));");
+				continue;
+			}
 			let head;
 			if (first?.text) head = `__live(${l.index}, (__node) => __effect(() => { __node.data = String((`;
 			else if (/^on/i.test(first.attr)) head = `__live(${l.index}, (__el) => { __el.addEventListener(${JSON.stringify(first.attr.slice(2).toLowerCase())}, (`;
@@ -714,6 +950,82 @@ export default function prepareRuntime(result) {
 		if (value === undefined || value === null) continue;
 		if (t.text) t.text.value = String(value);
 		else if (!/^on/i.test(t.key)) t.element.properties[t.key] = value;
+	}
+
+	// ###################
+	// 6. Live [for-each] rows written at build time, when the list's first value is known:
+	// signal([…literal…]) or signal(exported value). In each row, values that only need the
+	// item, i, exported values and plain JavaScript are filled in; the script fills the rest.
+	// Each row starts with <!--arcm-row:key-->, so the browser adopts it instead of drawing it
+	// ###################
+	const firstList = (f, expr, u) => {
+		if (!expr || expr.type !== "CallExpression" || expr.arguments.length || expr.callee.type !== "Identifier") return undefined;
+		const init = f.parsed.signalInits.get(expr.callee.name);
+		if (!init) return undefined;
+		if (init.type === "Identifier") return f.parsed.values.includes(init.name) ? u.values[init.name] : undefined;
+		const v = literalValue(init);
+		return v === NO ? undefined : v;
+	};
+	const rowFunction = (x, as, values, u) => {
+		let changes = false;
+		walk(x.ast, (n) => {
+			if (CHANGES.test(n.type) || (n.type === "UnaryExpression" && n.operator === "delete")) changes = true;
+		});
+		if (changes) return null;
+		const params = [as, "i"];
+		const args = [];
+		for (const name of freeNames(x.ast).keys()) {
+			if (name === as || name === "i" || PLAIN.has(name)) continue;
+			if (!values.includes(name)) return null;
+			params.push(name);
+			args.push(u.values[name]);
+		}
+		try {
+			const fn = new Function(...params, `"use strict"; return (${x.marker.code}\n);`);
+			return (item, index) => fn(item, index, ...args);
+		} catch {
+			return null;
+		}
+	};
+	for (const site of eachSites) {
+		const f = files.get(site.marker.source);
+		const l = f?.parsed?.lives.find((x) => x.key === siteKey(site.marker));
+		const list = l && firstList(f, l.expr, site.u);
+		if (!Array.isArray(list)) continue;
+		const fills = l.each.inner.map((x, j) => {
+			const target = site.inner[j].target;
+			return { target, fn: target.attr && /^on/i.test(target.attr) ? null : rowFunction(x, l.each.as, f.parsed.values, site.u) };
+		});
+		const rows = [];
+		list.forEach((item, index) => {
+			const keyText = JSON.stringify(site.key === null ? index : item?.[site.key]);
+			if (keyText === undefined) return;
+			const nodes = cloneNodes(site.node.children);
+			for (const { target, fn } of fills) {
+				if (!fn) continue;
+				let v;
+				try {
+					v = fn(item, index);
+				} catch {
+					continue;
+				}
+				fillRow(nodes, target, v);
+			}
+			rows.push({ type: "comment", value: `arcm-row:${encodeURIComponent(keyText)}` }, ...nodes);
+		});
+		site.children.splice(site.children.indexOf(site.node), 0, ...rows);
+	}
+
+	// ###################
+	// A name only another file's runtime code declares (B42): each file has its own scope,
+	// so it is undefined here in the browser
+	// ###################
+	const parsedFiles = [...files.values()].filter((f) => f.parsed);
+	for (const f of parsedFiles) {
+		for (const [name, position] of f.parsed.unknown) {
+			const other = parsedFiles.find((g) => g !== f && g.parsed.declared.has(name));
+			if (other) warnings.push({ source: f.id, position, message: `"${name}" is declared in ${fileName(other.id)}'s runtime code, not here; each file has its own scope, so here it is undefined in the browser` });
+		}
 	}
 
 	for (const { node, u, id } of styles) (u.styles ??= {})[id] = node.children.map((c) => c.value ?? "");

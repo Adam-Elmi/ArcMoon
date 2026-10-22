@@ -30,7 +30,7 @@ describe("parser", () => {
 	it("builds import, slot and for-each nodes", () => {
 		const ast = clean(parse(`[import = Card: "./Card.arcm" !][slot!][for-each = \${ xs }\$, as: "x"]a[end]`));
 		expect(ast[0]).toEqual({ type: "Import", name: "Card", path: "./Card.arcm" });
-		expect(ast[1]).toEqual({ type: "Slot", body: [] });
+		expect(ast[1]).toEqual({ type: "Slot", props: {}, body: [] });
 		expect(ast[2]).toMatchObject({ type: "ForEach", as: "x", key: null, source: { type: "StaticLogic", code: " xs " } });
 	});
 

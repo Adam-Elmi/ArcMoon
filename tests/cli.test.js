@@ -166,7 +166,7 @@ describe("cli", () => {
 		await arcmoon("init");
 		const blocked = await arcmoon("build", "pages");
 		expect(blocked.code).toBe(1);
-		expect(blocked.stderr).toMatch(/^⚠ Template "\.\.\/theme" is not trusted/);
+		expect(blocked.stderr).toMatch(/^⚠ Template "\.\.\/theme" \(.*theme\) is not trusted/);
 		expect(blocked.stderr).toContain("SECRET_KEY");
 
 		const audit = await arcmoon("audit", "pages/themed.arcm");

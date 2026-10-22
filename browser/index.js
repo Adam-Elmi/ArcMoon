@@ -189,7 +189,7 @@ export default class ArcMoon {
 		if (shared) {
 			globalThis.__arcmClient = { run };
 			globalThis.__arcmReactive = reactive;
-			special = { "arcmoon/reactive": toModuleURL(`const m = globalThis.__arcmReactive; export const { signal, computed, effect } = m;`) };
+			special = { "arcmoon/reactive": toModuleURL(`const m = globalThis.__arcmReactive; export const { signal, computed, effect, each } = m;`) };
 			client = toModuleURL(`export const run = (...a) => globalThis.__arcmClient.run(...a);`);
 		} else {
 			special = { "arcmoon/reactive": runtimeFile("reactive") };

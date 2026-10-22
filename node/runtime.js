@@ -25,9 +25,20 @@ const scriptPath = (script, cwd) =>
 	script.src.startsWith("/") ? resolve(cwd, `.${script.src}`) : resolve(isAbsolute(script.source) ? dirname(script.source) : cwd, script.src);
 
 // ###################
+// packages (1.1): npm names loaded from a URL instead of bundled, like the browser build's
+// option. "dayjs" → its URL; "dayjs/plugin/utc" → its URL + "/plugin/utc"
+// ###################
+const urlFor = (spec, pkg, packages) => {
+	const url = packages[spec] ?? (packages[pkg] !== undefined ? packages[pkg] + spec.slice(pkg.length) : undefined);
+	if (url === undefined) return null;
+	if (typeof url !== "string" || !/^https?:\/\//.test(url)) throw new Error(`packages: "${pkg}" in arcmoon.config.js must be a URL starting with https://`);
+	return url;
+};
+
+// ###################
 // One esbuild plugin for any number of pages; pages is keyed by page index
 // ###################
-const pluginFor = (pages, { allowed, version, cwd, dev }) => {
+const pluginFor = (pages, { allowed, packages = {}, version, cwd, dev }) => {
 	const allowedSet = new Set(allowed);
 	const checked = (a) =>
 		a.namespace === "arcm" ||
@@ -55,6 +66,10 @@ const pluginFor = (pages, { allowed, version, cwd, dev }) => {
 				return { contents: pages[p].prepared.sourceOf(f, { map: dev, name: isAbsolute(f.id) ? relative(cwd, f.id).split(sep).join("/") : f.id }), loader: "js", resolveDir: isAbsolute(f.id) ? dirname(f.id) : cwd };
 			});
 			b.onResolve({ filter: /^arcmoon\/reactive$/ }, () => ({ path: REACTIVE }));
+			// ###################
+			// A URL import (1.1) stays an import in the page's script: the visitor's browser loads it
+			// ###################
+			b.onResolve({ filter: /^https?:\/\// }, (a) => ({ path: a.path, external: true }));
 			b.onResolve({ filter: /^[^./]/ }, (a) => {
 				if (/^arcm-/.test(a.path) || isAbsolute(a.path) || !checked(a)) return;
 				const pkg = a.path.startsWith("@") ? a.path.split("/").slice(0, 2).join("/") : a.path.split("/")[0];
@@ -62,8 +77,15 @@ const pluginFor = (pages, { allowed, version, cwd, dev }) => {
 				if (a.path.startsWith("node:") || BUILTINS.has(pkg)) {
 					return { errors: [{ text: `runtime import "${a.path}" is a Node.js module, which doesn't exist in the browser`, detail }] };
 				}
+				let url;
+				try {
+					url = urlFor(a.path, pkg, packages);
+				} catch (err) {
+					return { errors: [{ text: err.message, detail }] };
+				}
+				if (url) return { path: url, external: true };
 				if (!allowedSet.has(pkg)) {
-					return { errors: [{ text: `runtime import "${pkg}" is not listed in bundle (arcmoon.config.js)`, detail }] };
+					return { errors: [{ text: `runtime import "${pkg}" is not listed in bundle (arcmoon.config.js). Add it to bundle to bundle it from node_modules, or to packages to load it from a URL`, detail }] };
 				}
 			});
 		}
@@ -106,7 +128,7 @@ const checkScripts = (pages, cwd) => {
 // dev: not minified, with a source map back to the .arcm files
 // ###################
 export default async function buildRuntime(result, options = {}) {
-	const { bundle: allowed = [], version = "0.0.0", cwd = process.cwd(), dev = false } = options;
+	const { bundle: allowed = [], packages = {}, version = "0.0.0", cwd = process.cwd(), dev = false } = options;
 	const prepared = prepareRuntime(result);
 	if (!prepared.hasCode) return { js: null, warnings: prepared.warnings };
 
@@ -123,7 +145,7 @@ export default async function buildRuntime(result, options = {}) {
 			sourcemap: dev ? "inline" : false,
 			logLevel: "silent",
 			absWorkingDir: cwd,
-			plugins: [pluginFor(pages, { allowed, version, cwd, dev })]
+			plugins: [pluginFor(pages, { allowed, packages, version, cwd, dev })]
 		});
 		return { js: out.outputFiles[0].text.replace(/<\/script/gi, "<\\/script"), warnings: prepared.warnings };
 	} catch (err) {
@@ -136,7 +158,7 @@ export default async function buildRuntime(result, options = {}) {
 // pages: [{ name, prepared }] → { entries: Map(name → file path), files: [{ path, contents }] }
 // ###################
 export async function bundlePages(list, options = {}) {
-	const { bundle: allowed = [], version = "0.0.0", cwd = process.cwd(), outDir = cwd, assetsDir = "assets", dev = false } = options;
+	const { bundle: allowed = [], packages = {}, version = "0.0.0", cwd = process.cwd(), outDir = cwd, assetsDir = "assets", dev = false } = options;
 	const pages = {};
 	list.forEach((p, index) => {
 		if (p.prepared.hasCode) pages[index] = { ...p, index };
@@ -161,7 +183,7 @@ export async function bundlePages(list, options = {}) {
 			entryNames: "[name]-[hash]",
 			chunkNames: "chunks/[name]-[hash]",
 			metafile: true,
-			plugins: [pluginFor(pages, { allowed, version, cwd, dev })]
+			plugins: [pluginFor(pages, { allowed, packages, version, cwd, dev })]
 		});
 	} catch (err) {
 		throw toError(err, pages);

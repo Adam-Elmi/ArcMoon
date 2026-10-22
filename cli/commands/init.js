@@ -15,6 +15,7 @@ export default {
 	removeComments: true,              // drop # comments from the HTML
 	timeout: 5000,                     // ms for each file's \${ }$ code
 	bundle: [],                        // npm packages allowed in runtime code
+	packages: {},                      // runtime imports loaded from a URL: { name: "https://…" }
 	outDir: "./dist"                   // where "arcmoon build" writes HTML
 };
 `;

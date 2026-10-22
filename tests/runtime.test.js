@@ -246,3 +246,91 @@ runtime \${ ArcMoon.defineRef("one"); }\$`;
 		expect(html).toMatch(/<p data-arcm-ref="one-u\d+">x<\/p>/);
 	});
 });
+
+describe("await at the top level of runtime code (1.1)", () => {
+	const tick = () => new Promise((r) => setTimeout(r, 10));
+	// the file's runtime function, async (esbuild may name it: async function y(i,t,e,f))
+	const ASYNC_RUN = /async function\s*[\w$]*\s*\([\w$]+,\s*[\w$]+,\s*[\w$]+,\s*[\w$]+\)/;
+
+	it("runs the file as an async function; live values and events attach after the await", async () => {
+		const doc = open(await compile(
+			`runtime \${\n  import { signal } from "arcmoon/reactive";\n  const n = await Promise.resolve(5);\n  const count = signal(n);\n}\$\n` +
+				`[div][button = onclick: runtime \${ () => count(count() + 1) }\$]runtime \${ count() }\$[end][end]`
+		));
+		const button = doc.querySelector("button");
+		expect(button.textContent).toBe("");
+		await tick();
+		expect(button.textContent).toBe("5");
+		button.click();
+		expect(button.textContent).toBe("6");
+	});
+
+	it("for await, and a live [for-each] whose list comes from an await", async () => {
+		const doc = open(await compile(
+			`runtime \${\n  import { signal } from "arcmoon/reactive";\n  async function* gen() { yield "a"; yield "b"; }\n  const got = [];\n  for await (const x of gen()) got.push(x);\n  const list = signal(got);\n}\$\n` +
+				`[ul][for-each = runtime \${ list() }\$, as: "x"][li]runtime \${ x }\$[end][end][end]`
+		));
+		await tick();
+		expect([...doc.querySelectorAll("li")].map((li) => li.textContent)).toEqual(["a", "b"]);
+	});
+
+	it("leaves files without a top-level await synchronous (await inside a function doesn't count)", async () => {
+		const html = await compile(`runtime \${ const load = async () => await Promise.resolve(1); window.sync = "yes"; }\$\n[p]x[end]`);
+		const doc = open(html);
+		expect(doc.defaultView.sync).toBe("yes");
+		expect(html).not.toMatch(ASYNC_RUN);
+		expect(await compile(`runtime \${ await Promise.resolve(); }\$\n[p]x[end]`)).toMatch(ASYNC_RUN);
+	});
+
+	it("reports an error after the await like any runtime error", async () => {
+		const html = await compile(`runtime \${ await Promise.resolve(); throw new Error("late"); }\$\n[p]x[end]`);
+		const errors = [];
+		new JSDOM(html.replace(`<script type="module">`, "<script>"), { runScripts: "dangerously", beforeParse: (w) => (w.console.error = (...a) => errors.push(a.map(String).join(" "))) });
+		await tick();
+		expect(errors.join()).toMatch(/ArcMoon runtime error in .*late/);
+	});
+
+	it("each use of a component awaits on its own", async () => {
+		const doc = open(await compile(`[import = Counter: "./components/Counter.arcm" !]\nruntime \${ await Promise.resolve(); window.page = "done"; }\$\n[Counter = start: 1 !][Counter = start: 2 !]`));
+		await tick();
+		expect(doc.defaultView.page).toBe("done");
+		expect([...doc.querySelectorAll("button")].map((b) => b.textContent)).toEqual(["1", "2"]);
+	});
+
+	it("await in a live value is a build error", async () => {
+		await expect(compile(`runtime \${ const p = Promise.resolve(1); }\$\n[p]runtime \${ await p }\$[end]`)).rejects.toThrow(
+			/await can't be used in a live value \(runtime \$\{ \}\$ inside \[p\]\): live values update at once\. Await in a runtime \$\{ \}\$ block at the top level of the file, and put the result in a signal/
+		);
+	});
+});
+
+describe("runtime imports from a URL, and packages (1.1)", () => {
+	const script = (html) => /<script type="module">([\s\S]*?)<\/script>/.exec(html)[1];
+
+	it("keeps a URL import as an import: the browser loads it", async () => {
+		const js = script(await compile(`runtime \${ import confetti from "https://esm.sh/canvas-confetti@1"; window.c = confetti; }\$\n[p]x[end]`));
+		expect(js).toMatch(/import \w+ from\s*"https:\/\/esm\.sh\/canvas-confetti@1"/);
+	});
+
+	it("keeps import(\"https://…\") too", async () => {
+		const js = script(await compile(`runtime \${ window.load = () => import("https://esm.sh/dayjs@1"); }\$\n[p]x[end]`));
+		expect(js).toContain(`import("https://esm.sh/dayjs@1")`);
+	});
+
+	it("packages: npm names (and their subpaths) load from a URL", async () => {
+		const js = script(await compile(
+			`runtime \${ import dayjs from "dayjs"; import utc from "dayjs/plugin/utc"; import { html } from "lit/html.js"; window.d = [dayjs, utc, html]; }\$\n[p]x[end]`,
+			{ packages: { dayjs: "https://esm.sh/dayjs@1", "lit/html.js": "https://esm.sh/lit-html@3" } }
+		));
+		expect(js).toContain(`"https://esm.sh/dayjs@1"`);
+		expect(js).toContain(`"https://esm.sh/dayjs@1/plugin/utc"`);
+		expect(js).toContain(`"https://esm.sh/lit-html@3"`);
+	});
+
+	it("a packages value that isn't a URL, and a name in neither list", async () => {
+		await expect(compile(`runtime \${ import d from "dayjs"; }\$\n[p]x[end]`, { packages: { dayjs: "./dayjs.js" } })).rejects.toThrow(/packages: "dayjs" in arcmoon.config.js must be a URL starting with https:\/\//);
+		await expect(compile(`runtime \${ import d from "dayjs"; }\$\n[p]x[end]`)).rejects.toThrow(
+			/runtime import "dayjs" is not listed in bundle \(arcmoon.config.js\)\. Add it to bundle to bundle it from node_modules, or to packages to load it from a URL/
+		);
+	});
+});

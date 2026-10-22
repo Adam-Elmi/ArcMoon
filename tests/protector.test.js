@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 import { join, resolve, dirname } from "node:path";
 import ArcMoon from "../node/compiler.js";
 import loadModules from "../core/modules.js";
-import { analyze, check, trust, untrust, readTrust, ProtectorError } from "../node/protector.js";
+import { analyze, check, trust, untrust, readTrust, ProtectorError, formatReport } from "../node/protector.js";
 
 const PROJECT = fileURLToPath(new URL("./fixtures/protector/project", import.meta.url));
 const TRUST = join(PROJECT, "arcmoon.trust.json");
@@ -52,6 +52,21 @@ describe("protector: analyze", () => {
 		expect(t.hash).toMatch(/^sha256-[0-9a-f]{64}$/);
 	});
 
+	it("the stop message shows where an outside template is, and why an outside page is one (1.1)", async () => {
+		const blog = fileURLToPath(new URL("./fixtures/protector/external/blog", import.meta.url));
+		await expect(check(await graphOf("page.arcm"), { root: PROJECT })).rejects.toThrow(`Template "../external/blog" (${blog}) is not trusted`);
+		const outside = await loadModules({ id: join(blog, "Post.arcm") }, host);
+		const err = await check(outside, { root: PROJECT }).catch((e) => e);
+		expect(err.message).toContain(`${join(blog, "Post.arcm")} is outside ${PROJECT}, so it counts as a template. To build it as your own file, run arcmoon from its folder.`);
+	});
+
+	it("reports runtime code that loads from a URL in visitors' browsers (1.1)", async () => {
+		const g = await loadModules({ id: join(PROJECT, "page.arcm"), src: `runtime \${ import c from "https://esm.sh/canvas-confetti@1"; const d = () => import("https://esm.sh/dayjs@1"); }\$` }, host);
+		const { own } = await analyze(g, { root: PROJECT });
+		expect([...own.report.runtimeRemote]).toEqual(["https://esm.sh/canvas-confetti@1", "https://esm.sh/dayjs@1"]);
+		expect(formatReport(own)).toMatch(/runtime +1 runtime block, loads https:\/\/esm\.sh\/canvas-confetti@1, https:\/\/esm\.sh\/dayjs@1 in visitors' browsers/);
+	});
+
 	it("reports [script = src] files and hashes them", async () => {
 		const g = await loadModules({ id: join(PROJECT, "page.arcm"), src: `[script = src: "../external/blog/helper.js" !]` }, host);
 		const { own } = await analyze(g, { root: PROJECT });
@@ -85,7 +100,7 @@ describe("protector: trust check", () => {
 	it("stops before running an untrusted template", async () => {
 		const error = await compile("page.arcm").catch((e) => e);
 		expect(error).toBeInstanceOf(ProtectorError);
-		expect(error.message).toContain(`Template "../external/blog" is not trusted`);
+		expect(error.message).toMatch(/Template "\.\.\/external\/blog" \(.*external[\\/]blog\) is not trusted/);
 		expect(error.message).toContain(`arcmoon trust ../external/blog`);
 		expect(error.message).toContain("leaked (from process.env!)");
 		expect(error.message).toContain("Nothing was run.");

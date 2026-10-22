@@ -1,0 +1,14 @@
+${ const { items = [] } = ArcMoon.props(); export const start = items; }$
+runtime ${
+  import { signal } from "arcmoon/reactive";
+  const todos = signal(start);
+}$
+[ul = class: "todos"]
+  [for-each = runtime ${ todos() }$, as: "todo", key: "id"]
+    [li]runtime ${ todo.title }$[end]
+  [end]
+  [button = onclick: runtime ${ () => todos([...todos(), { id: todos().length + 1, title: "new" }]) }$]+[end]
+[end]
+[style]
+  li { color: red; }
+[end]
