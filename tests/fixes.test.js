@@ -89,7 +89,7 @@ describe("B41: a signal without ()", () => {
 describe("B42: a name only another file's runtime code declares", () => {
 	it("warns in the component that uses the page's name", async () => {
 		const warnings = [];
-		await new ArcMoon({ src: `[import = Themed: "./components/Themed.arcm" !]\nruntime \${ const theme = "dark"; }\$\n[Themed !]`, cwd: FIXTURES, onWarning: (w) => warnings.push(`${w.source.split("/").pop()} ${w.message}`) }).compile();
+		await new ArcMoon({ src: `[import = Themed: "./components/Themed.arcm" !]\nruntime \${ const theme = "dark"; }\$\n[Themed !]`, cwd: FIXTURES, onWarning: (w) => warnings.push(`${w.source.split(/[\\/]/).pop()} ${w.message}`) }).compile();
 		expect(warnings).toEqual([`Themed.arcm "theme" is declared in anonymous.arcm's runtime code, not here; each file has its own scope, so here it is undefined in the browser`]);
 	});
 });
