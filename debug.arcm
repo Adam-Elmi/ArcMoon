@@ -1,0 +1,7 @@
+runtime ${
+    import { sayHello, add } from "arcmoon/utils";
+}$
+[h1]
+runtime ${ sayHello("Adam") }$
+[end]
+[span]sum of 349 + 473 is runtime ${ add(349, 473) }$[end]
