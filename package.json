@@ -65,7 +65,8 @@
       "node": "./dist/node.js"
     },
     "./core": "./dist/core.js",
-    "./reactive": "./dist/reactive.js"
+    "./reactive": "./dist/reactive.js",
+    "./utils": "./dist/utils.js"
   },
   "files": [
     "dist/node.js",
@@ -74,10 +75,12 @@
     "dist/worker.js",
     "dist/core.js",
     "dist/reactive.js",
+    "dist/utils.js",
     "dist/runtime",
     "core",
     "node",
     "runtime",
+    "utils",
     "cli",
     "assets",
     "CHANGELOG.md"
