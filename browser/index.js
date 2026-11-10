@@ -11,6 +11,7 @@ import { toHast, addScript, writeExact, setExact, CompilerError, formatWarning }
 import { createHost, toId } from "./host.js";
 import { createLoader } from "./modules.js";
 import * as reactive from "../runtime/reactive.js";
+import * as utils from "../runtime/utils.js";
 import { run } from "../runtime/client.js";
 import pkg from "../package.json" with { type: "json" };
 
@@ -26,7 +27,7 @@ const HTML_OPTIONS = { allowDangerousHtml: true, characterReferences: { useNamed
 // ###################
 const runtimeFile = (name) => {
 	if (typeof __ARCM_DIST__ !== "undefined") {
-		return (name === "client" ? new URL("./runtime/client.js", import.meta.url) : new URL("./runtime/reactive.js", import.meta.url)).href;
+		return new URL(`./runtime/${name}.js`, import.meta.url).href;
 	}
 	return new URL(["..", "runtime", `${name}.js`].join("/"), import.meta.url).href;
 };
@@ -189,10 +190,18 @@ export default class ArcMoon {
 		if (shared) {
 			globalThis.__arcmClient = { run };
 			globalThis.__arcmReactive = reactive;
-			special = { "arcmoon/reactive": toModuleURL(`const m = globalThis.__arcmReactive; export const { signal, computed, effect, each } = m;`) };
+			globalThis.__arcmUtils = utils;
+			const utilKeys = Object.keys(utils).filter((k) => k !== "default").join(", ");
+			special = {
+				"arcmoon/reactive": toModuleURL(`const m = globalThis.__arcmReactive; export const { signal, computed, effect, each } = m;`),
+				"arcmoon/utils": toModuleURL(`const u = globalThis.__arcmUtils; export const { ${utilKeys} } = u;`)
+			};
 			client = toModuleURL(`export const run = (...a) => globalThis.__arcmClient.run(...a);`);
 		} else {
-			special = { "arcmoon/reactive": runtimeFile("reactive") };
+			special = {
+				"arcmoon/reactive": runtimeFile("reactive"),
+				"arcmoon/utils": runtimeFile("utils")
+			};
 			client = runtimeFile("client");
 		}
 		const host = createHost({ files, baseUrl });
