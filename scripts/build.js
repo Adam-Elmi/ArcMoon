@@ -16,16 +16,18 @@ const entries = [
 	{ in: "node/eval-worker.js", out: "dist/eval-worker.js", platform: "node" },
 	{ in: "core/index.js", out: "dist/core.js", platform: "neutral" },
 	{ in: "runtime/reactive.js", out: "dist/reactive.js", platform: "browser" },
+	{ in: "runtime/utils.js", out: "dist/utils.js", platform: "browser" },
 	{ in: "browser/worker.js", out: "dist/worker.js", platform: "browser", standalone: true },
 	{ in: "browser/index.js", out: "dist/browser.js", platform: "browser", standalone: true, define: { __ARCM_DIST__: "true" } },
 	// ###################
 	// What browser compile() output imports by URL (next to browser.js)
 	// ###################
 	{ in: "runtime/client.js", out: "dist/runtime/client.js", platform: "browser", standalone: true },
-	{ in: "runtime/reactive.js", out: "dist/runtime/reactive.js", platform: "browser", standalone: true }
+	{ in: "runtime/reactive.js", out: "dist/runtime/reactive.js", platform: "browser", standalone: true },
+	{ in: "runtime/utils.js", out: "dist/runtime/utils.js", platform: "browser", standalone: true }
 ];
 
-for (const file of ["node.js", "eval-worker.js", "core.js", "reactive.js", "worker.js", "browser.js", "runtime/client.js", "runtime/reactive.js"]) {
+for (const file of ["node.js", "eval-worker.js", "core.js", "reactive.js", "utils.js", "worker.js", "browser.js", "runtime/client.js", "runtime/reactive.js", "runtime/utils.js"]) {
 	await rm(`${root}dist/${file}`, { force: true });
 }
 
