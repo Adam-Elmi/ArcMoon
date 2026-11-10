@@ -32,6 +32,18 @@ const checkReactive = (s, file, at) => {
 	}
 };
 
+const UTILS = ["sayHello", "add"];
+const checkUtils = (s, file, at) => {
+	for (const sp of s.specifiers) {
+		if (sp.type === "ImportNamespaceSpecifier") continue;
+		const name = sp.type === "ImportDefaultSpecifier" ? "default" : sp.imported.name ?? sp.imported.value;
+		if (UTILS.includes(name)) continue;
+		const best = name === "default" ? null : closest(name, UTILS);
+		const what = name === "default" ? "arcmoon/utils has no default export" : `"${name}" is not in arcmoon/utils`;
+		throw new RuntimeError(`${what}; it has ${UTILS.join(", ")}${best ? ` (did you mean "${best}"?)` : ""}`, file, at(sp.loc.start));
+	}
+};
+
 const LARGE_VALUE = 50 * 1024;
 
 // ###################
@@ -659,6 +671,7 @@ export default function prepareRuntime(result) {
 					hoisted.add(b.code.slice(s.start, s.end));
 					if (!importAt.has(s.source.value)) importAt.set(s.source.value, at(b, s.source.loc.start));
 					if (s.source.value === "arcmoon/reactive") checkReactive(s, f.id, (loc) => at(b, loc));
+					if (s.source.value === "arcmoon/utils") checkUtils(s, f.id, (loc) => at(b, loc));
 					edits.push(s);
 				} else if (/^Export/.test(s.type)) {
 					throw new RuntimeError("export is not allowed in runtime code", f.id, at(b, s.loc.start));
