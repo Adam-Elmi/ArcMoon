@@ -16,6 +16,7 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const RUNTIME_DIR = resolve(HERE, "../runtime");
 const CLIENT = resolve(RUNTIME_DIR, "client.js");
 const REACTIVE = resolve(RUNTIME_DIR, "reactive.js");
+const UTILS = resolve(RUNTIME_DIR, "utils.js");
 const BUILTINS = new Set(builtinModules);
 
 // ###################
@@ -66,6 +67,7 @@ const pluginFor = (pages, { allowed, packages = {}, version, cwd, dev }) => {
 				return { contents: pages[p].prepared.sourceOf(f, { map: dev, name: isAbsolute(f.id) ? relative(cwd, f.id).split(sep).join("/") : f.id }), loader: "js", resolveDir: isAbsolute(f.id) ? dirname(f.id) : cwd };
 			});
 			b.onResolve({ filter: /^arcmoon\/reactive$/ }, () => ({ path: REACTIVE }));
+			b.onResolve({ filter: /^arcmoon\/utils$/ }, () => ({ path: UTILS }));
 			// ###################
 			// A URL import (1.1) stays an import in the page's script: the visitor's browser loads it
 			// ###################
