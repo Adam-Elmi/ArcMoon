@@ -73,17 +73,33 @@ describe("runtime", () => {
 		expect(doc.querySelector("p").textContent).toBe("demo");
 	});
 
-	it("bundles and executes arcmoon/utils at runtime", async () => {
-		const html = await compile(`runtime \${ import { sayHello, add } from "arcmoon/utils"; window.__hello = sayHello("ArcMoon"); window.__sum = add(10, 20); }\$\n[p]ok[end]`);
+	it("bundles and executes copyText from arcmoon/utils at runtime", async () => {
+		const html = await compile(`runtime \${ import { copyText } from "arcmoon/utils"; window.__copyText = copyText; }\$\n[p]ok[end]`);
 		const win = new JSDOM(html.replace(`<script type="module">`, "<script>"), { runScripts: "dangerously" }).window;
-		expect(win.__hello).toBe("Hello, ArcMoon!");
-		expect(win.__sum).toBe(30);
+		expect(typeof win.__copyText).toBe("function");
+		const ok = await win.__copyText("test text", { quiet: true });
+		expect(typeof ok).toBe("boolean");
 	});
 
-	it("tree-shakes unused functions from arcmoon/utils", async () => {
-		const html = await compile(`runtime \${ import { add } from "arcmoon/utils"; window.__sum = add(1, 2); }\$\n[p]ok[end]`);
-		expect(html).not.toContain("Hello, ");
-		expect(html).not.toContain("sayHello");
+	it("copies text from DOM elements directly using copyText", async () => {
+		const html = await compile(`runtime \${ import { copyText } from "arcmoon/utils"; window.__copyText = copyText; }\$\n[p]ok[end]`);
+		const win = new JSDOM(html.replace(`<script type="module">`, "<script>"), { runScripts: "dangerously" }).window;
+		let copied = null;
+		win.navigator.clipboard = {
+			writeText: async (t) => {
+				copied = t;
+				return true;
+			}
+		};
+		const el = win.document.createElement("div");
+		el.textContent = "   hello from element   ";
+		await win.__copyText(el);
+		expect(copied).toBe("hello from element");
+
+		const input = win.document.createElement("input");
+		input.value = "secret-token-123";
+		await win.__copyText(input);
+		expect(copied).toBe("secret-token-123");
 	});
 
 	it("keeps the text around a live value", async () => {
@@ -169,8 +185,8 @@ describe("runtime", () => {
 		[`runtime \${ import { effectScope } from "arcmoon/reactive"; }\$`, /:1:21 {2}"effectScope" is not in arcmoon\/reactive; it has signal, computed and effect$/],
 		[`runtime \${ import { signal, efect } from "arcmoon/reactive"; }\$`, /"efect" is not in arcmoon\/reactive.*did you mean "effect"/],
 		[`runtime \${ import reactive from "arcmoon/reactive"; }\$`, /arcmoon\/reactive has no default export/],
-		[`runtime \${ import { unknownUtil } from "arcmoon/utils"; }\$`, /"unknownUtil" is not in arcmoon\/utils; it has sayHello, add$/],
-		[`runtime \${ import { sayHelo } from "arcmoon/utils"; }\$`, /"sayHelo" is not in arcmoon\/utils.*did you mean "sayHello"/],
+		[`runtime \${ import { unknownUtil } from "arcmoon/utils"; }\$`, /"unknownUtil" is not in arcmoon\/utils; it has copyText$/],
+		[`runtime \${ import { copyTex } from "arcmoon/utils"; }\$`, /"copyTex" is not in arcmoon\/utils.*did you mean "copyText"/],
 		[`runtime \${ import utils from "arcmoon/utils"; }\$`, /arcmoon\/utils has no default export/],
 		[`\${ import { name } from "./data.json"; }\$[p]runtime \${ name }\$[end]`, /uses "name", which is not exported .*export \{ name \}/],
 		[`[b = arcm-ref: "my-btn"]x[end]\nruntime \${ ArcMoon.defineRef("my-bnt"); }\$`, /matches no arcm-ref .*did you mean "my-btn"/],
