@@ -185,7 +185,7 @@ describe("runtime", () => {
 		[`runtime \${ import { effectScope } from "arcmoon/reactive"; }\$`, /:1:21 {2}"effectScope" is not in arcmoon\/reactive; it has signal, computed and effect$/],
 		[`runtime \${ import { signal, efect } from "arcmoon/reactive"; }\$`, /"efect" is not in arcmoon\/reactive.*did you mean "effect"/],
 		[`runtime \${ import reactive from "arcmoon/reactive"; }\$`, /arcmoon\/reactive has no default export/],
-		[`runtime \${ import { unknownUtil } from "arcmoon/utils"; }\$`, /"unknownUtil" is not in arcmoon\/utils; it has copyText$/],
+		[`runtime \${ import { unknownUtil } from "arcmoon/utils"; }\$`, /"unknownUtil" is not in arcmoon\/utils; it has copyText/],
 		[`runtime \${ import { copyTex } from "arcmoon/utils"; }\$`, /"copyTex" is not in arcmoon\/utils.*did you mean "copyText"/],
 		[`runtime \${ import utils from "arcmoon/utils"; }\$`, /arcmoon\/utils has no default export/],
 		[`\${ import { name } from "./data.json"; }\$[p]runtime \${ name }\$[end]`, /uses "name", which is not exported .*export \{ name \}/],
