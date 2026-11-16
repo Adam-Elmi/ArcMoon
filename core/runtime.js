@@ -57,7 +57,11 @@ const UTILS = [
   "onVisible",
   "mediaQuery",
   "lockScroll",
-  "onResize"
+  "onResize",
+  "fitCanvas",
+  "canvasPointer",
+  "onFrame",
+  "onScroll"
 ];
 const checkUtils = (s, file, at) => {
   for (const sp of s.specifiers) {
