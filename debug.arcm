@@ -1,42 +1,39 @@
 runtime ${
-    import { onScroll } from "arcmoon/utils";
+    import { scrollTo } from "arcmoon/utils";
     import { signal } from "arcmoon/reactive";
-    const hidden = signal(false);
-    const info = signal("scroll down");
+    const status = signal("Pick a section");
 
-    onScroll(window, ({ y, dy, direction }) => {
-        if (direction === "down" && y > 80) hidden(true);
-        else if (direction === "up") hidden(false);
-        info(`y = ${Math.round(y)}, last move ${Math.round(dy)}px ${direction ?? ""}`);
-    });
+    const go = async (el, name) => {
+        status(`Scrolling to ${name}...`);
+        await scrollTo(el, { offset: 72 }); // 72 = height of the fixed header
+        status(`Arrived at ${name}`);
+    };
+
+    const s1 = ArcMoon.ref(ArcMoon.defineRef("s1"));
+    const s2 = ArcMoon.ref(ArcMoon.defineRef("s2"));
+    const s3 = ArcMoon.ref(ArcMoon.defineRef("s3"));
+    ArcMoon.ref(ArcMoon.defineRef("b1")).addEventListener("click", () => go(s1, "Section 1"));
+    ArcMoon.ref(ArcMoon.defineRef("b2")).addEventListener("click", () => go(s2, "Section 2"));
+    ArcMoon.ref(ArcMoon.defineRef("b3")).addEventListener("click", () => go(s3, "Section 3"));
 }$
 [doctype!]
 [html = lang: "en"]
   [head]
     [meta = charset: "utf-8" !]
     [meta = name: "viewport", content: "width=device-width, initial-scale=1" !]
-    [title]onScroll Demo[end]
+    [title]scrollTo Demo[end]
   [end]
 
   [body = css.margin: "0", css.font-family: "sans-serif"]
-    [header = css.position: "fixed",
-              css.top: "0",
-              css.left: "0",
-              css.right: "0",
-              css.padding: "14px 32px",
-              css.background: "#6366f1",
-              css.color: "#ffffff",
-              css.transition: "transform 0.25s",
-              css.transform: runtime ${ hidden() ? "translateY(-100%)" : "translateY(0)" }$]
-      [strong]Smart Header[end]
+    [header = css.position: "fixed", css.top: "0", css.left: "0", css.right: "0", css.height: "72px", css.box-sizing: "border-box", css.padding: "0 24px", css.display: "flex", css.align-items: "center", css.gap: "12px", css.background: "#18181b", css.color: "#ffffff"]
+      [button = arcm-ref: "b1"]Section 1[end]
+      [button = arcm-ref: "b2"]Section 2[end]
+      [button = arcm-ref: "b3"]Section 3[end]
+      [span = css.margin-left: "auto", css.font-family: "monospace"]runtime ${ status() }$[end]
     [end]
 
-    [div = css.padding: "80px 32px 32px", css.height: "2400px"]
-      [h1]Scroll down, then up[end]
-      [p]The header hides while you scroll down and returns as soon as you scroll up.[end]
-      [p = css.position: "fixed", css.bottom: "16px", css.left: "32px", css.font-family: "monospace", css.color: "#71717a"]
-        runtime ${ info() }$
-      [end]
-    [end]
+    [section = arcm-ref: "s1", css.height: "700px", css.padding: "96px 24px 24px", css.box-sizing: "border-box", css.background: "#e0e7ff"][h2]Section 1[end][end]
+    [section = arcm-ref: "s2", css.height: "700px", css.padding: "96px 24px 24px", css.box-sizing: "border-box", css.background: "#fce7f3"][h2]Section 2[end][end]
+    [section = arcm-ref: "s3", css.height: "700px", css.padding: "96px 24px 24px", css.box-sizing: "border-box", css.background: "#dcfce7"][h2]Section 3[end][end]
   [end]
 [end]
