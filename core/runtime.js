@@ -61,7 +61,8 @@ const UTILS = [
   "fitCanvas",
   "canvasPointer",
   "onFrame",
-  "onScroll"
+  "onScroll",
+  "scrollTo"
 ];
 const checkUtils = (s, file, at) => {
   for (const sp of s.specifiers) {

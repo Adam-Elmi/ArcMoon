@@ -17,3 +17,4 @@ export { onScroll } from "../utils/events/onScroll.js";
 // Viewport
 export { mediaQuery } from "../utils/viewport/mediaQuery.js";
 export { lockScroll } from "../utils/viewport/lockScroll.js";
+export { scrollTo } from "../utils/viewport/scrollTo.js";
