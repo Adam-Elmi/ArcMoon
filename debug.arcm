@@ -1,10 +1,13 @@
 runtime ${
-    import { onResize } from "arcmoon/utils";
+    import { onScroll } from "arcmoon/utils";
     import { signal } from "arcmoon/reactive";
-    const box = ArcMoon.ref(ArcMoon.defineRef("box"));
-    const width = signal(0);
-    onResize(box, (rect) => {
-        width(Math.round(rect.width));
+    const hidden = signal(false);
+    const info = signal("scroll down");
+
+    onScroll(window, ({ y, dy, direction }) => {
+        if (direction === "down" && y > 80) hidden(true);
+        else if (direction === "up") hidden(false);
+        info(`y = ${Math.round(y)}, last move ${Math.round(dy)}px ${direction ?? ""}`);
     });
 }$
 [doctype!]
@@ -12,41 +15,27 @@ runtime ${
   [head]
     [meta = charset: "utf-8" !]
     [meta = name: "viewport", content: "width=device-width, initial-scale=1" !]
-    [title]OnResize Demo[end]
+    [title]onScroll Demo[end]
   [end]
 
-  [body = css.margin: "0", css.font-family: "sans-serif", css.padding: "32px"]
+  [body = css.margin: "0", css.font-family: "sans-serif"]
+    [header = css.position: "fixed",
+              css.top: "0",
+              css.left: "0",
+              css.right: "0",
+              css.padding: "14px 32px",
+              css.background: "#6366f1",
+              css.color: "#ffffff",
+              css.transition: "transform 0.25s",
+              css.transform: runtime ${ hidden() ? "translateY(-100%)" : "translateY(0)" }$]
+      [strong]Smart Header[end]
+    [end]
 
-    [h1]Element-Level Resize Observer[end]
-    [p]Drag the bottom-right corner of the box below to resize it:[end]
-
-    [div = arcm-ref: "box",
-           css.resize: "horizontal",
-           css.overflow: "auto",
-           css.width: "460px",
-           css.min-width: "220px",
-           css.max-width: "100%",
-           css.padding: "20px",
-           css.border: "2px solid #e4e4e7",
-           css.border-radius: "8px",
-           css.display: "flex",
-           css.flex-direction: runtime ${ width() < 350 ? "column" : "row" }$,
-           css.justify-content: "space-between",
-           css.gap: "12px"]
-
-      [div]
-        [strong]Container Card[end]
-        [p = css.margin: "4px 0 0", css.color: "#71717a", css.font-size: "14px"]
-          Switches to stacked layout below 350px
-        [end]
-      [end]
-
-      [span = css.padding: "4px 10px",
-              css.background: "#f4f4f5",
-              css.border-radius: "6px",
-              css.align-self: "flex-start",
-              css.font-family: "monospace"]
-        runtime ${ width() }$px
+    [div = css.padding: "80px 32px 32px", css.height: "2400px"]
+      [h1]Scroll down, then up[end]
+      [p]The header hides while you scroll down and returns as soon as you scroll up.[end]
+      [p = css.position: "fixed", css.bottom: "16px", css.left: "32px", css.font-family: "monospace", css.color: "#71717a"]
+        runtime ${ info() }$
       [end]
     [end]
   [end]
