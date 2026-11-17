@@ -1,39 +1,46 @@
 runtime ${
-    import { scrollTo } from "arcmoon/utils";
+    import { limit, lockFocus } from "arcmoon/utils";
     import { signal } from "arcmoon/reactive";
-    const status = signal("Pick a section");
 
-    const go = async (el, name) => {
-        status(`Scrolling to ${name}...`);
-        await scrollTo(el, { offset: 72 }); // 72 = height of the fixed header
-        status(`Arrived at ${name}`);
-    };
+    // 1. limit: spam clicks are throttled to once every 500ms
+    const clicks = signal(0);
+    const onClick = limit(() => clicks(clicks() + 1), 3000);
+    ArcMoon.ref(ArcMoon.defineRef("btn")).addEventListener("click", onClick);
 
-    const s1 = ArcMoon.ref(ArcMoon.defineRef("s1"));
-    const s2 = ArcMoon.ref(ArcMoon.defineRef("s2"));
-    const s3 = ArcMoon.ref(ArcMoon.defineRef("s3"));
-    ArcMoon.ref(ArcMoon.defineRef("b1")).addEventListener("click", () => go(s1, "Section 1"));
-    ArcMoon.ref(ArcMoon.defineRef("b2")).addEventListener("click", () => go(s2, "Section 2"));
-    ArcMoon.ref(ArcMoon.defineRef("b3")).addEventListener("click", () => go(s3, "Section 3"));
+    // 2. lockFocus: keeps Tab key trapped inside modal
+    const modal = ArcMoon.ref(ArcMoon.defineRef("modal"));
+    let unlock = null;
+
+    ArcMoon.ref(ArcMoon.defineRef("open")).addEventListener("click", () => {
+        modal.style.display = "block";
+        unlock = lockFocus(modal);
+    });
+
+    ArcMoon.ref(ArcMoon.defineRef("close")).addEventListener("click", () => {
+        modal.style.display = "none";
+        unlock?.();
+    });
 }$
+
 [doctype!]
 [html = lang: "en"]
-  [head]
-    [meta = charset: "utf-8" !]
-    [meta = name: "viewport", content: "width=device-width, initial-scale=1" !]
-    [title]scrollTo Demo[end]
-  [end]
+  [body = css.font-family: "sans-serif", css.padding: "30px"]
+    [h2]1. limit(fn, 500)[end]
+    [button = arcm-ref: "btn"]Spam Click Me[end]
+    [p]Throttled clicks: [b]runtime ${ clicks() }$[end][end]
 
-  [body = css.margin: "0", css.font-family: "sans-serif"]
-    [header = css.position: "fixed", css.top: "0", css.left: "0", css.right: "0", css.height: "72px", css.box-sizing: "border-box", css.padding: "0 24px", css.display: "flex", css.align-items: "center", css.gap: "12px", css.background: "#18181b", css.color: "#ffffff"]
-      [button = arcm-ref: "b1"]Section 1[end]
-      [button = arcm-ref: "b2"]Section 2[end]
-      [button = arcm-ref: "b3"]Section 3[end]
-      [span = css.margin-left: "auto", css.font-family: "monospace"]runtime ${ status() }$[end]
+    [hr = css.margin: "30px 0" !]
+
+    [h2]2. lockFocus(target)[end]
+    [button = arcm-ref: "open"]Open Modal[end]
+    [button]Outside Button (Can't Tab here while open)[end]
+
+    [div = arcm-ref: "modal", css.display: "none", css.border: "2px solid black", css.padding: "20px", css.margin-top: "20px", css.max-width: "250px"]
+      [h3 = css.margin-top: "0"]Modal[end]
+      [p = css.font-size: "13px"]Tab / Shift+Tab is trapped inside:[end]
+      [input = placeholder: "Input 1" !][br!]
+      [input = placeholder: "Input 2" !][br!][br!]
+      [button = arcm-ref: "close"]Close[end]
     [end]
-
-    [section = arcm-ref: "s1", css.height: "700px", css.padding: "96px 24px 24px", css.box-sizing: "border-box", css.background: "#e0e7ff"][h2]Section 1[end][end]
-    [section = arcm-ref: "s2", css.height: "700px", css.padding: "96px 24px 24px", css.box-sizing: "border-box", css.background: "#fce7f3"][h2]Section 2[end][end]
-    [section = arcm-ref: "s3", css.height: "700px", css.padding: "96px 24px 24px", css.box-sizing: "border-box", css.background: "#dcfce7"][h2]Section 3[end][end]
   [end]
 [end]
