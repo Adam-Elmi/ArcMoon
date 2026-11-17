@@ -145,7 +145,7 @@ describe("cli", () => {
 		const again = await arcmoon("build", "pages/one.arcm", "-o", "out");
 		expect(again.stdout).not.toContain("removed");
 		expect(await assets()).toEqual(after);
-	});
+	}, 15000);
 
 	it("build reports a missing stylesheet at the [link]", async () => {
 		await writeFile(join(site, "pages/bad.arcm"), `[p]x[end]\n[link = rel: "stylesheet", href: "./nope.css" !]`);

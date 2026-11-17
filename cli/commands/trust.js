@@ -15,8 +15,11 @@ export async function runTrust(target) {
 	try {
 		const config = await loadConfig();
 		let count = 0;
-		for (const file of await arcmFiles(target)) {
+		const trustedKeys = new Set();
+		for (const file of await arcmFiles(target, { recursive: true, checkNodeModules: true })) {
 			for (const t of await trust(await graph(file, config), { root: process.cwd() })) {
+				if (trustedKeys.has(t.key)) continue;
+				trustedKeys.add(t.key);
 				success(`Trusted "${t.key}" ${dim(`(${t.hash.slice(0, 19)}…)`)}\n${rows(formatReport(t))}`);
 				count++;
 			}

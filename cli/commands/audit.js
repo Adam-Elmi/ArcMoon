@@ -16,7 +16,7 @@ export async function runAudit(target) {
 	try {
 		const config = await loadConfig();
 		const trusted = (await readTrust(process.cwd())).templates ?? {};
-		for (const file of await arcmFiles(target)) {
+		for (const file of await arcmFiles(target, { recursive: true, checkNodeModules: true })) {
 			const result = await analyze(await graph(file, config), { root: process.cwd() });
 			console.log(`\n${pc.bold(file)}`);
 			if (result.own) console.log(`  Your files (${result.own.files.length}):\n${rows(formatReport(result.own))}`);

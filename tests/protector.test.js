@@ -269,3 +269,34 @@ describe("protector: indirect process.env and fetch", () => {
 		}
 	});
 });
+
+describe("protector: multiple components in outside template", () => {
+	it("hashes all components in the outside folder consistently across different pages", async () => {
+		const { mkdtemp, mkdir } = await import("node:fs/promises");
+		const { tmpdir } = await import("node:os");
+		const dir = await mkdtemp(join(tmpdir(), "arcmoon-multifile-"));
+		try {
+			await mkdir(join(dir, "site"));
+			await mkdir(join(dir, "theme"));
+			await writeFile(join(dir, "theme/Button.arcm"), "[button]btn[end]");
+			await writeFile(join(dir, "theme/Modal.arcm"), "[div]modal[end]");
+			await writeFile(join(dir, "site/pageA.arcm"), `[import = Btn: "../theme/Button.arcm" !]\n[Btn!]`);
+			await writeFile(join(dir, "site/pageB.arcm"), `[import = Mdl: "../theme/Modal.arcm" !]\n[Mdl!]`);
+
+			const siteHost = { resolve: (p, from) => resolve(dirname(from), p), readFile: (f) => readFile(f, "utf8") };
+			const graphA = await loadModules({ id: join(dir, "site/pageA.arcm") }, siteHost);
+			const graphB = await loadModules({ id: join(dir, "site/pageB.arcm") }, siteHost);
+
+			const analysisA = await analyze(graphA, { root: join(dir, "site") });
+			const analysisB = await analyze(graphB, { root: join(dir, "site") });
+
+			expect(analysisA.templates[0].hash).toBe(analysisB.templates[0].hash);
+
+			// Trusting via pageA allows pageB to pass as well
+			await trust(graphA, { root: join(dir, "site") });
+			await expect(check(graphB, { root: join(dir, "site") })).resolves.toBeTruthy();
+		} finally {
+			await rm(dir, { recursive: true, force: true });
+		}
+	});
+});

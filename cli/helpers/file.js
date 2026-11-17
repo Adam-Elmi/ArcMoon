@@ -29,16 +29,50 @@ export const createFile = async (folder, file, content) => {
 	await fs.writeFile(path.join(folder, file), content);
 };
 
+const findArcmRecursive = async (dir) => {
+	const found = [];
+	const walk = async (d) => {
+		let entries;
+		try {
+			entries = await fs.readdir(d, { withFileTypes: true });
+		} catch {
+			return;
+		}
+		for (const e of entries) {
+			if (e.name.startsWith(".")) continue;
+			if (e.name === "node_modules" && !dir.split(path.sep).includes("node_modules")) continue;
+			const full = path.join(d, e.name);
+			if (e.isDirectory()) {
+				await walk(full);
+			} else if (e.isFile() && e.name.endsWith(EXTENSION)) {
+				found.push(full);
+			}
+		}
+	};
+	await walk(dir);
+	return found.sort();
+};
+
 // ###################
-// A .arcm file, or the .arcm files directly inside a folder
+// A .arcm file, or the .arcm files inside a folder (or node_modules package)
 // ###################
-export const arcmFiles = async (target) => {
-	if (!(await isExist(target))) throw new Error(`"${target}" is not found`);
-	if (await isDirectory(target)) {
-		const names = (await fs.readdir(target)).filter((n) => n.endsWith(EXTENSION)).sort();
-		if (!names.length) throw new Error(`no ${EXTENSION} files in "${target}"`);
-		return names.map((n) => path.join(target, n));
+export const arcmFiles = async (target, { recursive = false, checkNodeModules = false } = {}) => {
+	let resolved = target;
+	if (checkNodeModules && !(await isExist(target))) {
+		const nm = path.join(process.cwd(), "node_modules", target);
+		if (await isExist(nm)) resolved = nm;
 	}
-	if (!target.endsWith(EXTENSION)) throw new Error(`only ${EXTENSION} files are accepted, got "${target}"`);
-	return [target];
+	if (!(await isExist(resolved))) throw new Error(`"${target}" is not found`);
+	if (await isDirectory(resolved)) {
+		let names = [];
+		if (recursive) {
+			names = await findArcmRecursive(resolved);
+		} else {
+			names = (await fs.readdir(resolved)).filter((n) => n.endsWith(EXTENSION)).map((n) => path.join(resolved, n)).sort();
+		}
+		if (!names.length) throw new Error(`no ${EXTENSION} files in "${target}"`);
+		return names;
+	}
+	if (!resolved.endsWith(EXTENSION)) throw new Error(`only ${EXTENSION} files are accepted, got "${target}"`);
+	return [resolved];
 };

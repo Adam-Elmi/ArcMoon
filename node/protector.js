@@ -3,12 +3,13 @@
 // ###################
 
 import { readFile, writeFile } from "node:fs/promises";
-import { existsSync, statSync } from "node:fs";
+import { existsSync, statSync, readdirSync } from "node:fs";
 import { dirname, join, relative, resolve, sep, isAbsolute } from "node:path";
 import { builtinModules } from "node:module";
 import { createHash } from "node:crypto";
 import * as acorn from "acorn";
-import { NODE_TYPES as N } from "../core/parser.js";
+import lexer from "../core/lexer.js";
+import parser, { NODE_TYPES as N } from "../core/parser.js";
 
 const TRUST_FILE = "arcmoon.trust.json";
 const BUILTINS = new Set(builtinModules);
@@ -419,6 +420,35 @@ const followScripts = async (start, packages) => {
 };
 
 // ###################
+// Find all .arcm files that belong to a template directory
+// ###################
+const templateArcmFiles = (dir) => {
+	const found = [];
+	const walk = (d) => {
+		let entries;
+		try {
+			entries = readdirSync(d, { withFileTypes: true });
+		} catch {
+			return;
+		}
+		for (const e of entries) {
+			if (e.name.startsWith(".")) continue;
+			if (e.name === "node_modules" && !dir.split(sep).includes("node_modules")) continue;
+			if (e.name === "dist" || e.name === "build") continue;
+			const full = join(d, e.name);
+			if (e.isDirectory()) {
+				if (d !== dir && (existsSync(join(full, "package.json")) || existsSync(join(full, "arcmoon.config.js")))) continue;
+				walk(full);
+			} else if (e.isFile() && e.name.endsWith(".arcm")) {
+				found.push(full);
+			}
+		}
+	};
+	walk(dir);
+	return found.sort();
+};
+
+// ###################
 // Analyze the whole graph; runs no template code
 // ###################
 export async function analyze(graph, options = {}) {
@@ -435,6 +465,19 @@ export async function analyze(graph, options = {}) {
 	}
 
 	for (const g of groups.values()) {
+		if (!g.own && g.dir) {
+			for (const f of templateArcmFiles(g.dir)) {
+				if (!g.files.includes(f)) {
+					try {
+						const src = await readFile(f, "utf8");
+						const ast = parser(lexer(src, f));
+						scanModule({ id: f, ast }, g.report, g.packages, root);
+						g.files.push(f);
+					} catch {}
+				}
+			}
+		}
+
 		g.scriptFiles = await followScripts(g.report.localScripts, g.packages);
 
 		// ###################
