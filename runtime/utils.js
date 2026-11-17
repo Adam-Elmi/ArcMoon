@@ -5,6 +5,8 @@
 // Browser
 export { copyText } from "../utils/browser/copyText.js";
 export { delay } from "../utils/browser/delay.js";
+export { limit } from "../utils/browser/limit.js";
+export { lockFocus } from "../utils/browser/lockFocus.js";
 export { fitCanvas } from "../utils/browser/fitCanvas.js";
 export { canvasPointer } from "../utils/browser/canvasPointer.js";
 // Events

@@ -62,7 +62,9 @@ const UTILS = [
   "canvasPointer",
   "onFrame",
   "onScroll",
-  "scrollTo"
+  "scrollTo",
+  "limit",
+  "lockFocus"
 ];
 const checkUtils = (s, file, at) => {
   for (const sp of s.specifiers) {
