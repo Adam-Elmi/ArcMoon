@@ -87,13 +87,19 @@ Install the `arcm` command:
 npm install -g arcmoon
 ```
 
-Check that it works:
+Check that it works
 
 ```bash
 arcm -v
 ```
 
-`arcmoon` and its short name `arcm` are the same command. To keep ArcMoon inside one project instead, run `npm install arcmoon` there and use `npx arcm`.
+This prints the installed version. `arcm` is the short name for `arcmoon`, and they are the same command, so this works too:
+
+```bash
+arcmoon -v
+```
+
+To keep ArcMoon inside one project instead, run `npm install arcmoon` there and use `npx arcm`.
 
 ## A template language you enjoy building with
 
