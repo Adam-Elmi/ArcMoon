@@ -104,7 +104,7 @@ To keep ArcMoon inside one project instead, run `npm install arcmoon` there and 
 ## A template language you enjoy building with
 
 ```ini
-# A signal holds the count: the button changes it, the text follows
+# count is a signal. Clicking the button changes it, and the text updates by itself.
 runtime ${
   import { signal } from "arcmoon/reactive";
   const count = signal(0);
