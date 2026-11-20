@@ -77,7 +77,6 @@ The key, the draft post and the filtering code stay in your build. The exception
 ### Requirements
 
 - [Node.js](https://nodejs.org) 22.12 or newer (check with `node -v`).
-- npm, pnpm, bun or yarn.
 
 ## Installation
 
