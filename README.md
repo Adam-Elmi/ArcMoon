@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/arcmoon-logo.svg" alt="ArcMoon logo" width="120">
+  <img src="assets/arcmoon-new-logo.svg" alt="ArcMoon logo" width="120">
 </p>
 
 <h1 align="center">ArcMoon</h1>
