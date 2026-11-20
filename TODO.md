@@ -2,6 +2,7 @@
 ## Bugs to be fixed
 1. [x] arcm trust `<dir>` causes hash mismatch loop for outside templates:
     - Reproduction:
+    
     When importing components from an outside folder (e.g. ../random), running arcm trust ../random creates an infinite trust loop or fails to build.
     
     ```sh
@@ -42,7 +43,7 @@
 1. [x] Add built-in utils that you can easily import them. For example: 
   ```js 
   ${
-    import { onResize } from "arcmoon/utils"};
+    import { onResize } from "arcmoon/utils";
   }$
   ```
 2. [ ] Add REPL for ArcMoon (In progress)
