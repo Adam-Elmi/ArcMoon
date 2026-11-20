@@ -16,7 +16,63 @@
 
 ArcMoon is a template language for web pages. You write .arcm files, and ArcMoon compiles them to plain HTML. Pages ship zero JavaScript and zero CSS by default: you get plain HTML, and a page only includes JS or CSS if you actually write some.
 
-Code is split by where it runs. Build-time code runs once while the page is generated, and browser code runs on the visitor’s device. Because the two are kept separate, secrets and database queries stay at build time and never reach your visitors.
+**ArcMoon code runs in two places:**
+
+1. **Build-time code**: written in `${ }$`, runs in Node.js once each time you build the site, and only its output is written into the HTML.
+
+```js
+${ const title = "Hello ArcMoon"; }$
+${ const secretKey = "sk-live-123"; }$
+[h1]${ title }$[end]
+```
+
+The HTML it builds:
+
+```html
+<h1>Hello ArcMoon</h1>
+```
+
+Only `title` was printed. `secretKey` was declared but never output, so it isn't in the page.
+
+2. **Browser code**: written in `runtime ${ }$`, runs on the visitor's device every time they open the page.
+
+```js
+runtime ${
+  import { signal } from "arcmoon/reactive";
+  const count = signal(0);
+}$
+[button = onclick: runtime ${ () => count(count() + 1) }$]Clicked runtime ${ count() }$ times[end]
+```
+
+Each visitor gets their own `count`, and the button updates it in their browser.
+
+Because the code itself never leaves your build, secrets and database queries are safe in build-time code, as long as you don't output them into the page.
+
+```js
+${
+  const secretKey = "sk-live-123";
+  const posts = [                  // imagine a database query here
+    { title: "Hello ArcMoon", draft: false },
+    { title: "Secret plan", draft: true }
+  ];
+  const published = posts.filter(p => !p.draft);
+}$
+
+[ul]
+  [for-each = ${ published }$, as: "post"]
+    [li]${ post.title }$[end]
+  [end]
+[end]
+```
+
+The HTML it builds:
+
+```html
+<ul>
+  <li>Hello ArcMoon</li>
+</ul>
+```
+The key, the draft post and the filtering code stay in your build. The exception is anything you print. Adding `[p]${ secretKey }$[end]` would put the key in the page for everyone to read.
 
 ### Requirements
 
