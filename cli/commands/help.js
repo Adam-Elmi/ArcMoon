@@ -14,6 +14,7 @@ export function getHelp(unknownOption = true) {
 		"  -h, --help                    Show this help",
 		"  -v, --version                 Show the version",
 		"  init                          Create arcmoon.config.js here",
+		"  repl                          Start an interactive ArcMoon REPL",
 		"  show config                   Show the loaded config",
 		"  show --path-config            Show the path of the loaded config",
 		"",

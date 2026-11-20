@@ -3,12 +3,14 @@
 // ###################
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
+import { PassThrough, Writable } from "node:stream";
 import { promisify } from "node:util";
 import { mkdtemp, mkdir, writeFile, readFile, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { runRepl } from "../cli/commands/repl.js";
 import pkg from "../package.json" with { type: "json" };
 
 const CLI = fileURLToPath(new URL("../cli/cli.mjs", import.meta.url));
@@ -192,5 +194,101 @@ describe("cli", () => {
 	it("prints tokens and the AST", async () => {
 		expect(JSON.parse((await arcmoon("--lex", "pages/index.arcm")).stdout)[0].type).toBe("OPEN_BRACKET");
 		expect(JSON.parse((await arcmoon("--parse", "pages/index.arcm")).stdout)[0]).toMatchObject({ type: "Import", name: "Card" });
+	});
+
+	it("repl evaluates templates, multiline code, variables and dot commands", async () => {
+		const arcmoonRepl = (input) =>
+			new Promise((resolve) => {
+				const child = spawn("node", [CLI, "repl"], { cwd: site, env: PLAIN });
+				let stdout = "";
+				let stderr = "";
+				child.stdout.on("data", (d) => {
+					stdout += d;
+				});
+				child.stderr.on("data", (d) => {
+					stderr += d;
+				});
+				child.on("close", (code) => {
+					resolve({ code, stdout, stderr });
+				});
+				child.stdin.write(input);
+				child.stdin.end();
+			});
+
+		// 1. Single line evaluation
+		const r1 = await arcmoonRepl("[h1]Hello REPL[end]\n.exit\n");
+		expect(r1.code).toBe(0);
+		expect(r1.stdout).toContain("<h1>Hello REPL</h1>");
+
+		// 2. Multiline block evaluation
+		const r2 = await arcmoonRepl("[div]\n  [p]Multiline text[end]\n[end]\n.exit\n");
+		expect(r2.code).toBe(0);
+		expect(r2.stdout).toContain("<div>\n  <p>Multiline text</p>\n</div>");
+
+		// 3. Variable persistence across lines
+		const r3 = await arcmoonRepl('${ const name = "ArcMoon"; }$\n[h1]Hello ${ name }$[end]\n.exit\n');
+		expect(r3.code).toBe(0);
+		expect(r3.stdout).toContain("<h1>Hello ArcMoon</h1>");
+
+		// 4. Dot commands: .help, .ast, .lex, .show, .clear, .load
+		const r4 = await arcmoonRepl(".help\n.exit\n");
+		expect(r4.stdout).toContain(".ast");
+		expect(r4.stdout).toContain(".lex");
+		expect(r4.stdout).toContain(".load");
+		expect(r4.stdout).toContain(".show");
+
+		const r5 = await arcmoonRepl(".ast [p]Hi[end]\n.lex [p]Hi[end]\n.exit\n");
+		expect(r5.stdout).toContain(`"type": "Block"`);
+		expect(r5.stdout).toContain(`"type": "OPEN_BRACKET"`);
+
+		await writeFile(join(site, "test-load.arcm"), "[section]Loaded section[end]");
+		const r6 = await arcmoonRepl(".load test-load.arcm\n.exit\n");
+		expect(r6.stdout).toContain("<section>Loaded section</section>");
+		expect(r6.stdout).toContain("✓ Loaded test-load.arcm");
+
+		// 5. Error recovery: syntax error does not crash the REPL session
+		const r7 = await arcmoonRepl("[div][p][end:div]\n[p]Recovered[end]\n.exit\n");
+		expect(r7.code).toBe(0);
+		expect(r7.stdout).toContain("does not match");
+		expect(r7.stdout).toContain("<p>Recovered</p>");
+	}, 20000);
+
+	it("editor mode allows navigating and editing previous lines", async () => {
+		const inStream = new PassThrough();
+		let out = "";
+		const outStream = new Writable({
+			write(c, enc, cb) {
+				out += c.toString();
+				cb();
+			}
+		});
+
+		const server = await runRepl({
+			input: inStream,
+			output: outStream,
+			terminal: true,
+			banner: false
+		});
+
+		server.commands.editor.action.call(server);
+
+		// Type line 1
+		server._ttyWrite("[div]", { name: "undefined" });
+		server._ttyWrite("\r", { name: "return" });
+		// Type line 2
+		server._ttyWrite("[end]", { name: "undefined" });
+		// Navigate UP to line 1
+		server._ttyWrite(undefined, { name: "up" });
+		// Enter newline between [div] and [end]
+		server._ttyWrite("\r", { name: "return" });
+		// Type [p]In editor[end] on inserted line
+		server._ttyWrite("[p]In editor[end]", { name: "undefined" });
+		// Finish with Ctrl+D
+		server._ttyWrite("\x04", { ctrl: true, name: "d" });
+
+		await new Promise((resolve) => setTimeout(resolve, 800));
+		server.close();
+
+		expect(out).toContain("<div>\n<p>In editor</p>\n</div>");
 	});
 });

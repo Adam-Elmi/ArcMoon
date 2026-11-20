@@ -11,6 +11,7 @@ import { runBuild } from "./commands/build.js";
 import { printLex, printParse } from "./commands/print.js";
 import { runAudit } from "./commands/audit.js";
 import { runTrust, runUntrust } from "./commands/trust.js";
+import { runRepl } from "./commands/repl.js";
 
 const args = process.argv.slice(2);
 const command = args[0];
@@ -27,6 +28,7 @@ async function main() {
 	if (command === "audit") return runAudit(args[1]);
 	if (command === "trust") return runTrust(args[1]);
 	if (command === "untrust") return runUntrust(args.slice(1));
+	if (command === "repl") return runRepl();
 	getHelp();
 	process.exitCode = 1;
 }
