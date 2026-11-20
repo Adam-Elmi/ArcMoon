@@ -47,4 +47,5 @@
   }$
   ```
 2. [ ] Add REPL for ArcMoon (In progress)
-3. [ ] ArcMoon Packages: Ready-made .arcm files you can drop into any page 
+3. [ ] ArcMoon Packages: Ready-made .arcm files you can drop into any page
+4. [ ] Add ArcMoon development server
