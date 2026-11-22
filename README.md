@@ -16,7 +16,7 @@
 
 ArcMoon is a template language for web pages. You write .arcm files, and ArcMoon compiles them to plain HTML. Pages ship zero JavaScript and zero CSS by default: you get plain HTML, and a page only includes JS or CSS if you actually write some.
 
-**ArcMoon code runs in two places:**
+**The JavaScript in an ArcMoon runs in two places:**
 
 1. **Build-time code**: written in `${ }$`, runs in Node.js once each time you build the site, and only its output is written into the HTML.
 
