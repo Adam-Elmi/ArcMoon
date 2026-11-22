@@ -46,6 +46,6 @@
     import { onResize } from "arcmoon/utils";
   }$
   ```
-2. [ ] Add REPL for ArcMoon (In progress)
+2. [x] Add REPL for ArcMoon
 3. [ ] ArcMoon Packages: Ready-made .arcm files you can drop into any page
 4. [ ] Add ArcMoon development server
