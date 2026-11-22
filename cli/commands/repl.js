@@ -17,24 +17,24 @@ import pkg from "../../package.json" with { type: "json" };
 import { loadConfig } from "../helpers/config.js";
 
 // ###################
-// Detect whether code is incomplete and should continue on a new line
+// Detect whether code has an explicit line continuation (trailing backslash)
 // ###################
 export function isRecoverable(code) {
-	try {
-		const tokens = lexer(code, "repl.arcm");
-		parser(tokens);
-		return false;
-	} catch (err) {
-		const msg = String(err?.message ?? err);
-		return (
-			msg.includes("is missing [end]") ||
-			msg.includes("is not closed with }$") ||
-			msg.includes("expected ] to close") ||
-			msg.includes("expected a value") ||
-			msg.includes("missing value for prop") ||
-			msg.includes("Unexpected end of input")
-		);
+	return code.trimEnd().endsWith("\\");
+}
+
+// ###################
+// Format REPL compiler errors with picocolors
+// ###################
+export function formatReplError(err) {
+	const text = String(err?.message ?? err);
+	const at = text.indexOf("  ");
+	const message = at !== -1 && err?.source && text.startsWith(err.source) ? text.slice(at + 2) : text;
+	const lines = [`${pc.red("✗")} ${pc.bold(message)}`];
+	if (err?.position) {
+		lines.push(`  ${pc.cyan(`line ${err.position.line + 1}:${err.position.character + 1}`)}`);
 	}
+	return lines.join("\n") + "\n";
 }
 
 // ###################
@@ -76,7 +76,7 @@ export async function runRepl(options = {}) {
 
 	if (isInteractive && options.banner !== false) {
 		output.write(
-			`${pc.bold(pc.cyan(`ArcMoon v${pkg.version}`))} REPL\nType ArcMoon template code to evaluate, or ${pc.dim(".help")} for commands.\n\n`
+			`${pc.bold(pc.cyan(`ArcMoon v${pkg.version}`))} ${pc.bold("REPL")}\nType ArcMoon template code to evaluate, or ${pc.cyan(".help")} for commands.\n\n`
 		);
 	}
 
@@ -107,7 +107,7 @@ export async function runRepl(options = {}) {
 			timeout: config.timeout ?? 5000,
 			bundle: config.bundle ?? [],
 			packages: config.packages ?? {},
-			onWarning: (w) => output.write(pc.yellow(`Warning: ${w.message ?? w}\n`))
+			onWarning: (w) => output.write(`${pc.yellow("⚠")} ${pc.yellow(w.message ?? w)}\n`)
 		}).compile();
 
 		// Record top-level imports and declarations for session persistence
@@ -128,7 +128,7 @@ export async function runRepl(options = {}) {
 	};
 
 	const server = repl.start({
-		prompt: "arcmoon> ",
+		prompt: pc.cyan("arcmoon> "),
 		input,
 		output,
 		terminal: isInteractive,
@@ -138,25 +138,27 @@ export async function runRepl(options = {}) {
 			const code = cmd.trim();
 			if (!code) return callback(null, undefined);
 
-			if (isRecoverable(code)) {
+			if (isRecoverable(cmd)) {
 				return callback(new repl.Recoverable(new Error("Incomplete input")));
 			}
+
+			const cleanCode = code.replace(/\\\r?\n/g, "\n").trim();
 
 			queue = queue
 				.then(async () => {
 					try {
-						const html = await evalInput(code);
+						const html = await evalInput(cleanCode);
 						if (!html || html.trim() === "") {
 							return callback(null, undefined);
 						}
 						return callback(null, html);
 					} catch (err) {
-						output.write(`${pc.red("✗")} ${err.message ?? err}\n`);
+						output.write(formatReplError(err));
 						return callback(null, undefined);
 					}
 				})
 				.catch((err) => {
-					output.write(`${pc.red("✗")} ${err.message ?? err}\n`);
+					output.write(formatReplError(err));
 					callback(null, undefined);
 				});
 		}
@@ -182,7 +184,7 @@ export async function runRepl(options = {}) {
 			this.clearBufferedCommand();
 			const src = code.trim();
 			if (!src) {
-				output.write(pc.yellow("Usage: .ast <arcmoon-code>\n"));
+				output.write(`${pc.yellow("Usage:")} ${pc.cyan(".ast <arcmoon-code>")}\n`);
 				safePrompt(this);
 				return;
 			}
@@ -206,7 +208,7 @@ export async function runRepl(options = {}) {
 			this.clearBufferedCommand();
 			const src = code.trim();
 			if (!src) {
-				output.write(pc.yellow("Usage: .lex <arcmoon-code>\n"));
+				output.write(`${pc.yellow("Usage:")} ${pc.cyan(".lex <arcmoon-code>")}\n`);
 				safePrompt(this);
 				return;
 			}
@@ -234,12 +236,12 @@ export async function runRepl(options = {}) {
 						output.write(pc.dim("(no session imports or declarations)\n"));
 					} else {
 						if (session.imports.length > 0) {
-							output.write(pc.bold("Imports:\n"));
-							for (const imp of session.imports) output.write(`  ${imp}\n`);
+							output.write(pc.bold(pc.cyan("Imports:\n")));
+							for (const imp of session.imports) output.write(`  ${pc.green(imp)}\n`);
 						}
 						if (session.declarations.length > 0) {
-							output.write(pc.bold("Declarations:\n"));
-							for (const decl of session.declarations) output.write(`  ${decl}\n`);
+							output.write(pc.bold(pc.cyan("Declarations:\n")));
+							for (const decl of session.declarations) output.write(`  ${pc.yellow(decl)}\n`);
 						}
 					}
 					safePrompt(this);
@@ -254,7 +256,7 @@ export async function runRepl(options = {}) {
 			this.clearBufferedCommand();
 			const filePath = file.trim();
 			if (!filePath) {
-				output.write(pc.yellow("Usage: .load <file>\n"));
+				output.write(`${pc.yellow("Usage:")} ${pc.cyan(".load <file>")}\n`);
 				safePrompt(this);
 				return;
 			}
@@ -265,9 +267,9 @@ export async function runRepl(options = {}) {
 						const content = await readFile(resolved, "utf8");
 						const html = await evalInput(content);
 						if (html && html.trim() !== "") output.write(html + "\n");
-						output.write(pc.green(`✓ Loaded ${filePath}\n`));
+						output.write(`${pc.green("✓")} Loaded ${pc.cyan(filePath)}\n`);
 					} catch (err) {
-						output.write(`${pc.red("✗")} Error loading ${filePath}: ${err.message}\n`);
+						output.write(`${pc.red("✗")} Error loading ${pc.cyan(filePath)}: ${err.message}\n`);
 					}
 					safePrompt(this);
 				})
@@ -373,7 +375,7 @@ export async function runRepl(options = {}) {
 							const html = await evalInput(code);
 							if (html && html.trim() !== "") output.write(html + "\n");
 						} catch (err) {
-							output.write(`${pc.red("✗")} ${err.message ?? err}\n`);
+							output.write(formatReplError(err));
 						}
 						safePrompt(srv);
 					})
@@ -507,6 +509,29 @@ export async function runRepl(options = {}) {
 			const trimmed = (arg ?? "").trim();
 			const useExternal = trimmed === "-e" || trimmed === "--external" || trimmed === "external";
 			startMultilineEditor(this, useExternal);
+		}
+	});
+
+	server.defineCommand("help", {
+		help: "Print this help message",
+		action() {
+			this.clearBufferedCommand();
+			output.write(`\n${pc.bold(pc.cyan("ArcMoon REPL Commands:"))}\n`);
+			const cmds = [
+				[".editor", "Enter multiline editor mode (navigate lines with Up/Down, or -e for $EDITOR)"],
+				[".ast <code>", "Print AST of ArcMoon code"],
+				[".lex <code>", "Print tokens of ArcMoon code"],
+				[".show", "Show accumulated session imports and declarations"],
+				[".load <file>", "Load an ArcMoon file into the REPL session"],
+				[".clear", "Clear current session variables and imports"],
+				[".help", "Print this help message"],
+				[".exit", "Exit the REPL (Ctrl+D)"]
+			];
+			for (const [cmd, desc] of cmds) {
+				output.write(`  ${pc.cyan(cmd.padEnd(16))} ${pc.dim(desc)}\n`);
+			}
+			output.write(`\n${pc.dim("Shortcuts:")} ${pc.cyan("Ctrl+C")} ${pc.dim("abort expression,")} ${pc.cyan("Ctrl+D")} ${pc.dim("exit REPL")}\n\n`);
+			safePrompt(this);
 		}
 	});
 

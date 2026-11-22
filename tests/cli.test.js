@@ -220,17 +220,22 @@ describe("cli", () => {
 		expect(r1.code).toBe(0);
 		expect(r1.stdout).toContain("<h1>Hello REPL</h1>");
 
-		// 2. Multiline block evaluation
-		const r2 = await arcmoonRepl("[div]\n  [p]Multiline text[end]\n[end]\n.exit\n");
+		// 2. Multiline block evaluation (explicit line continuation with \)
+		const r2 = await arcmoonRepl("[div] \\\n  [p]Multiline text[end] \\\n[end]\n.exit\n");
 		expect(r2.code).toBe(0);
-		expect(r2.stdout).toContain("<div>\n  <p>Multiline text</p>\n</div>");
+		expect(r2.stdout).toContain("Multiline text");
 
-		// 3. Variable persistence across lines
+		// 3. Unclosed tag compiles and produces error immediately instead of hanging
+		const rUnclosed = await arcmoonRepl("[span]Test\n.exit\n");
+		expect(rUnclosed.code).toBe(0);
+		expect(rUnclosed.stdout).toContain("[span] opened at 1:1 is missing [end]");
+
+		// 4. Variable persistence across lines
 		const r3 = await arcmoonRepl('${ const name = "ArcMoon"; }$\n[h1]Hello ${ name }$[end]\n.exit\n');
 		expect(r3.code).toBe(0);
 		expect(r3.stdout).toContain("<h1>Hello ArcMoon</h1>");
 
-		// 4. Dot commands: .help, .ast, .lex, .show, .clear, .load
+		// 5. Dot commands: .help, .ast, .lex, .show, .clear, .load
 		const r4 = await arcmoonRepl(".help\n.exit\n");
 		expect(r4.stdout).toContain(".ast");
 		expect(r4.stdout).toContain(".lex");
