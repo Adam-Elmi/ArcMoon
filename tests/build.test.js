@@ -4,7 +4,9 @@
 
 import { describe, it, expect } from "vitest";
 import { fileURLToPath } from "node:url";
-import { relative, sep } from "node:path";
+import { relative, sep, join } from "node:path";
+import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { JSDOM } from "jsdom";
 import { SourceMapConsumer } from "source-map-js";
 import ArcMoon, { buildPages } from "../node/compiler.js";
@@ -62,6 +64,28 @@ describe("build() and buildPages()", () => {
 		const chunk = files.find((f) => slashed(f.path).includes("/chunks/")).contents;
 		expect(chunk).toContain("hello");
 		expect(files.find((f) => /p1-/.test(f.path)).contents.length).toBeLessThan(chunk.length);
+	});
+
+	it("shares reactive component code across pages in a shared chunk", async () => {
+		const dir = mkdtempSync(join(tmpdir(), "arcm-test-"));
+		try {
+			writeFileSync(
+				join(dir, "Counter.arcm"),
+				`runtime \${\n  import { signal } from "arcmoon/reactive";\n  const label = signal("MARKER_9f3a");\n  const count = signal(0);\n}\$\n[p]runtime \${ label() }\$ runtime \${ count() }\$[end]\n`
+			);
+			const pages = [0, 1].map((i) => {
+				const filename = join(dir, `page${i}.arcm`);
+				const src = `[import = Counter: "./Counter.arcm" !]\n[Counter !]\n`;
+				writeFileSync(filename, src);
+				return { name: `page${i}`, filename, src, cwd: dir };
+			});
+			const out = await buildPages(pages, { cwd: dir, outDir: join(dir, "dist"), onWarning() {} });
+			const hits = out.files.filter((f) => f.path.endsWith(".js") && f.contents.includes("MARKER_9f3a"));
+			expect(hits).toHaveLength(1);
+			expect(slashed(hits[0].path)).toContain("/chunks/");
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
 	});
 
 	it("uses base for script URLs when given", async () => {

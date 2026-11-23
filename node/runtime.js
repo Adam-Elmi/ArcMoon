@@ -39,11 +39,27 @@ const urlFor = (spec, pkg, packages) => {
 // ###################
 // One esbuild plugin for any number of pages; pages is keyed by page index
 // ###################
-const pluginFor = (pages, { allowed, packages = {}, version, cwd, dev }) => {
+const pluginFor = (pages, { allowed, packages = {}, version, cwd, dev, files = [] }) => {
 	const allowedSet = new Set(allowed);
 	const checked = (a) =>
 		a.namespace === "arcm" ||
 		(a.importer && !a.importer.includes(`${sep}node_modules${sep}`) && !a.importer.startsWith(RUNTIME_DIR));
+
+	const fileMap = new Map();
+	for (const page of Object.values(pages)) {
+		const { prepared } = page;
+		page.fileSpecs = prepared.files.map((f) => {
+			const code = prepared.sourceOf(f, { map: dev, name: isAbsolute(f.id) ? relative(cwd, f.id).split(sep).join("/") : f.id });
+			const key = `${f.id}\0${code}`;
+			let index = fileMap.get(key);
+			if (index === undefined) {
+				index = files.length;
+				fileMap.set(key, index);
+				files.push({ file: f, prepared, contents: code, resolveDir: isAbsolute(f.id) ? dirname(f.id) : cwd });
+			}
+			return `arcm-file:${index}`;
+		});
+	}
 
 	return {
 		name: "arcmoon",
@@ -54,7 +70,7 @@ const pluginFor = (pages, { allowed, packages = {}, version, cwd, dev }) => {
 				const { prepared } = page;
 				const contents = prepared.entry({
 					client: CLIENT,
-					fileSpecs: prepared.files.map((_, i) => `arcm-file:${page.index}:${i}`),
+					fileSpecs: page.fileSpecs,
 					scriptSpecs: prepared.scripts.map((s) => scriptPath(s, cwd)),
 					version,
 					label: (id) => (isAbsolute(id) ? relative(cwd, id).split(sep).join("/") : id)
@@ -62,9 +78,9 @@ const pluginFor = (pages, { allowed, packages = {}, version, cwd, dev }) => {
 				return { contents, loader: "js", resolveDir: cwd };
 			});
 			b.onLoad({ filter: /^arcm-file:/, namespace: "arcm" }, (a) => {
-				const [p, i] = a.path.slice("arcm-file:".length).split(":").map(Number);
-				const f = pages[p].prepared.files[i];
-				return { contents: pages[p].prepared.sourceOf(f, { map: dev, name: isAbsolute(f.id) ? relative(cwd, f.id).split(sep).join("/") : f.id }), loader: "js", resolveDir: isAbsolute(f.id) ? dirname(f.id) : cwd };
+				const index = Number(a.path.slice("arcm-file:".length));
+				const item = files[index];
+				return { contents: item.contents, loader: "js", resolveDir: item.resolveDir };
 			});
 			b.onResolve({ filter: /^arcmoon\/reactive$/ }, () => ({ path: REACTIVE }));
 			b.onResolve({ filter: /^arcmoon\/utils$/ }, () => ({ path: UTILS }));
@@ -97,15 +113,18 @@ const pluginFor = (pages, { allowed, packages = {}, version, cwd, dev }) => {
 // ###################
 // esbuild errors pointed at the .arcm file or the [script] file
 // ###################
-const toError = (err, pages) => {
+const toError = (err, files) => {
 	const first = err.errors?.[0];
 	if (!first) return err;
 	const importer = first.detail?.importer ?? first.location?.file ?? "";
-	const match = /arcm-file:(\d+):(\d+)/.exec(importer);
+	const match = /arcm-file:(\d+)(?::(\d+))?/.exec(importer);
 	if (match) {
-		const { prepared } = pages[Number(match[1])];
-		const file = prepared.files[Number(match[2])];
-		return new RuntimeError(first.text, file.id, first.detail ? prepared.importPosition(file, first.detail.spec) : null);
+		const item = match[2] !== undefined ? files[Number(match[1])]?.prepared?.files?.[Number(match[2])] : files[Number(match[1])];
+		const file = item?.file ?? item;
+		const prepared = item?.prepared ?? files[Number(match[1])]?.prepared;
+		if (file && prepared) {
+			return new RuntimeError(first.text, file.id, first.detail ? prepared.importPosition(file, first.detail.spec) : null);
+		}
 	}
 	if (first.location?.file && !first.location.file.startsWith("arcm")) {
 		const where = { line: first.location.line - 1, character: first.location.column };
@@ -136,6 +155,7 @@ export default async function buildRuntime(result, options = {}) {
 
 	const pages = { 0: { index: 0, prepared } };
 	checkScripts(pages, cwd);
+	const files = [];
 	try {
 		const out = await build({
 			entryPoints: ["arcm-entry:0"],
@@ -147,11 +167,11 @@ export default async function buildRuntime(result, options = {}) {
 			sourcemap: dev ? "inline" : false,
 			logLevel: "silent",
 			absWorkingDir: cwd,
-			plugins: [pluginFor(pages, { allowed, packages, version, cwd, dev })]
+			plugins: [pluginFor(pages, { allowed, packages, version, cwd, dev, files })]
 		});
 		return { js: out.outputFiles[0].text.replace(/<\/script/gi, "<\\/script"), warnings: prepared.warnings };
 	} catch (err) {
-		throw toError(err, pages);
+		throw toError(err, files);
 	}
 }
 
@@ -168,6 +188,7 @@ export async function bundlePages(list, options = {}) {
 	if (!Object.keys(pages).length) return { entries: new Map(), files: [] };
 
 	checkScripts(pages, cwd);
+	const files = [];
 	let out;
 	try {
 		out = await build({
@@ -185,10 +206,10 @@ export async function bundlePages(list, options = {}) {
 			entryNames: "[name]-[hash]",
 			chunkNames: "chunks/[name]-[hash]",
 			metafile: true,
-			plugins: [pluginFor(pages, { allowed, packages, version, cwd, dev })]
+			plugins: [pluginFor(pages, { allowed, packages, version, cwd, dev, files })]
 		});
 	} catch (err) {
-		throw toError(err, pages);
+		throw toError(err, files);
 	}
 
 	const entries = new Map();
