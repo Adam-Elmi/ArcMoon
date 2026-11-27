@@ -7,7 +7,7 @@ Arci turns SVG icon files into reusable ArcMoon components.
 Install Arci in your project:
 
 ```sh
-npm install --save-dev arci
+npm install --save-dev @adam-elmi/arci
 ```
 
 Arci builds `.arcm` component files in `./arcmoon-icons`, so you can use those icons as ArcMoon components. Add this alias to the project's `arcmoon.config.js` so ArcMoon can find them:
@@ -29,7 +29,7 @@ Add a Lucide alias to `importAliases` in `arcmoon.config.js`:
 ```js
 export default {
 	importAliases: {
-		"@lucide": "./node_modules/arci/icons/lucide"
+		"@lucide": "./node_modules/@adam-elmi/arci/icons/lucide"
 	}
 };
 ```

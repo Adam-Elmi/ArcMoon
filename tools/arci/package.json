@@ -1,5 +1,5 @@
 {
-	"name": "arci",
+	"name": "@adam-elmi/arci",
 	"version": "1.0.0",
 	"description": "Build reusable ArcMoon icon components from installed SVG icon packages",
 	"type": "module",
@@ -19,6 +19,9 @@
 	},
 	"engines": {
 		"node": ">=22.12"
+	},
+	"publishConfig": {
+		"access": "public"
 	},
 	"license": "SEE LICENSE IN LICENSE.md"
 }
