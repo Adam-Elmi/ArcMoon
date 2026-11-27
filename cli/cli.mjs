@@ -12,6 +12,7 @@ import { printLex, printParse } from "./commands/print.js";
 import { runAudit } from "./commands/audit.js";
 import { runTrust, runUntrust } from "./commands/trust.js";
 import { runRepl } from "./commands/repl.js";
+import { runDev } from "./commands/dev.js";
 
 const args = process.argv.slice(2);
 const command = args[0];
@@ -23,6 +24,7 @@ async function main() {
 	if (command === "init") return runInit();
 	if (command === "show") return runShow(args[1]);
 	if (command === "build") return runBuild(args.slice(1));
+	if (command === "dev") return runDev(args.slice(1));
 	if (command === "--lex") return printLex(args[1]);
 	if (command === "--parse") return printParse(args[1]);
 	if (command === "audit") return runAudit(args[1]);

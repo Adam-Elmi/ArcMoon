@@ -79,5 +79,5 @@ console.log("files containing Counter's code:", hits.length, "(expected 1)");
   }$
   ```
 2. [x] Add REPL for ArcMoon
-3. [ ] ArcMoon Packages: Ready-made .arcm files you can drop into any page
-4. [ ] Add ArcMoon development server
+3. [x] Add ArcMoon development server
+4. [ ] ArcMoon Packages: Ready-made .arcm files you can drop into any page
