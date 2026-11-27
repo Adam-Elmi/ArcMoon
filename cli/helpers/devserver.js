@@ -72,6 +72,7 @@ export function createDevServer({ root, pagesDir = root, config = {}, port = 300
 	const cache = new Map();
 	const clients = new Set();
 	const watchers = [];
+	const watchedDirs = new Map();
 	let generation = 0;
 	let workChain = Promise.resolve();
 	let debounceTimer = null;
@@ -122,17 +123,42 @@ export function createDevServer({ root, pagesDir = root, config = {}, port = 300
 		}, 75);
 	};
 
-	const watch = (dir) => {
+	const watch = (dir, recursive = true) => {
+		dir = path.resolve(dir);
+		if (watchedDirs.has(dir) || ignored(dir)) return;
 		try {
-			const watcher = fs.watch(dir, { recursive: true }, (_event, filename) => {
+			const watcher = fs.watch(dir, { recursive }, (_event, filename) => {
 				if (closed) return;
-				if (filename) queueInvalidate(path.resolve(dir, filename.toString()));
-				else queueInvalidate(path.resolve(dir));
+				if (!filename) {
+					if (recursive) queueInvalidate(dir);
+					return;
+				}
+				const changed = path.resolve(dir, filename.toString());
+				queueInvalidate(changed);
+				if (!recursive && _event === "rename") {
+					fsp.stat(changed).then((stat) => stat.isDirectory() && watchTree(changed)).catch(() => {
+						for (const [watched] of [...watchedDirs.entries()]) {
+							if (watched !== changed && inside(changed, watched)) {
+								watchedDirs.get(watched)?.close();
+								watchedDirs.delete(watched);
+							}
+						}
+					});
+				}
 			});
+			watchedDirs.set(dir, watcher);
 			watchers.push(watcher);
 			watcher.on("error", (err) => reportError(err));
 		} catch (err) {
 			reportError(new Error(`Cannot watch ${dir}: ${err.message}`));
+		}
+	};
+
+	const watchTree = async (dir) => {
+		if (closed || ignored(dir) || watchedDirs.has(path.resolve(dir))) return;
+		watch(dir, false);
+		for (const entry of await fsp.readdir(dir, { withFileTypes: true }).catch(() => [])) {
+			if (entry.isDirectory()) await watchTree(path.join(dir, entry.name));
 		}
 	};
 
@@ -252,9 +278,10 @@ export function createDevServer({ root, pagesDir = root, config = {}, port = 300
 				server.once("error", reject);
 				server.listen(port, host, () => { server.off("error", reject); resolve(); });
 			});
-			watch(root);
-			if (!inside(root, pagesDir) && !inside(pagesDir, root)) watch(pagesDir);
-			for (const dir of config.watch ?? []) watch(path.resolve(root, dir));
+			const watchRoot = process.platform === "darwin" ? watchTree : (dir) => watch(dir, true);
+			await watchRoot(root);
+			if (!inside(root, pagesDir) && !inside(pagesDir, root)) await watchRoot(pagesDir);
+			for (const dir of config.watch ?? []) await watchRoot(path.resolve(root, dir));
 			return server.address();
 		},
 		async close() {
