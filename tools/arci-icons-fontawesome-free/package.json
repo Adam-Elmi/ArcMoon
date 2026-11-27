@@ -1,0 +1,14 @@
+{
+	"name": "arci-icons-fontawesome-free",
+	"version": "1.0.0",
+	"description": "Prebuilt Font Awesome Free solid icon components for ArcMoon",
+	"type": "module",
+	"files": [
+		"icons",
+		"LICENSE.txt",
+		"LICENSE.md",
+		"LICENSE-ARCI",
+		"README.md"
+	],
+	"license": "SEE LICENSE IN LICENSE.md"
+}

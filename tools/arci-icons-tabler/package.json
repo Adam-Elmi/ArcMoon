@@ -1,0 +1,13 @@
+{
+	"name": "arci-icons-tabler",
+	"version": "1.0.0",
+	"description": "Prebuilt Tabler icon components for ArcMoon",
+	"type": "module",
+	"files": [
+		"icons",
+		"LICENSE",
+		"LICENSE-ARCI",
+		"README.md"
+	],
+	"license": "MIT"
+}

@@ -1,0 +1,7 @@
+${ const { width = "24", height = "24" } = ArcMoon.props(); }$[svg = "class": "lucide lucide-hard-drive-download", "xmlns": "http://www.w3.org/2000/svg", "width": ${ width }$, "height": ${ height }$, "viewBox": "0 0 24 24", "fill": "none", "stroke": "currentColor", "stroke-width": "2", "stroke-linecap": "round", "stroke-linejoin": "round"]
+  [path = "d": "M10 18h.01" !]
+  [path = "d": "M12 2v8" !]
+  [path = "d": "m15 7-3 3-3-3" !]
+  [path = "d": "M6 18h.01" !]
+  [rect = "x": "2", "y": "14", "width": "20", "height": "8", "rx": "2" !]
+[end]

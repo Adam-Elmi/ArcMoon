@@ -1,0 +1,24 @@
+{
+	"name": "arci",
+	"version": "1.0.0",
+	"description": "Build reusable ArcMoon icon components from installed SVG icon packages",
+	"type": "module",
+	"bin": {
+		"arci": "./cli.js"
+	},
+	"files": [
+		"cli.js",
+		"index.js",
+		"README.md",
+		"LICENSE.md",
+		"LICENSE-ARCI",
+		"icons"
+	],
+	"dependencies": {
+		"saxes": "^6.0.0"
+	},
+	"engines": {
+		"node": ">=22.12"
+	},
+	"license": "SEE LICENSE IN LICENSE.md"
+}

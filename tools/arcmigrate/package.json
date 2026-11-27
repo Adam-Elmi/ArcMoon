@@ -1,0 +1,21 @@
+{
+	"name": "arcmigrate",
+	"version": "1.0.0",
+	"description": "Convert HTML projects to ArcMoon while preserving existing assets",
+	"type": "module",
+	"bin": {
+		"arcmigrate": "./cli.js"
+	},
+	"files": [
+		"cli.js",
+		"index.js",
+		"README.md"
+	],
+	"dependencies": {
+		"parse5": "^8.0.1"
+	},
+	"engines": {
+		"node": ">=22.12"
+	},
+	"license": "MIT"
+}
