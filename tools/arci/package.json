@@ -4,7 +4,7 @@
 	"description": "Build reusable ArcMoon icon components from installed SVG icon packages",
 	"type": "module",
 	"bin": {
-		"arci": "./cli.js"
+		"arci": "cli.js"
 	},
 	"files": [
 		"cli.js",
