@@ -90,6 +90,7 @@ export function createDevServer({ root, pagesDir = root, config = {}, port = 300
 	const broadcast = () => { for (const client of clients) client.write("data: reload\n\n"); };
 
 	const invalidate = async (changed = []) => {
+		if (closed) return;
 		generation++;
 		cache.clear();
 		const operation = workChain.then(async () => {
@@ -109,6 +110,7 @@ export function createDevServer({ root, pagesDir = root, config = {}, port = 300
 	};
 
 	const queueInvalidate = (file) => {
+		if (closed) return;
 		if (file && !path.isAbsolute(file)) file = path.resolve(root, file);
 		if (file && ignored(file)) return;
 		if (file) pending.add(file);
@@ -123,6 +125,7 @@ export function createDevServer({ root, pagesDir = root, config = {}, port = 300
 	const watch = (dir) => {
 		try {
 			const watcher = fs.watch(dir, { recursive: true }, (_event, filename) => {
+				if (closed) return;
 				if (filename) queueInvalidate(path.resolve(dir, filename.toString()));
 				else queueInvalidate(path.resolve(dir));
 			});
@@ -173,7 +176,7 @@ export function createDevServer({ root, pagesDir = root, config = {}, port = 300
 		const current = generation;
 		const task = workChain.then(async () => {
 			const html = injectReload(await compile(file, config, true, root));
-			console.log(`${dim("compiled")} ${key}  ${Math.round(performance.now() - started)} ms`);
+			if (!closed) console.log(`${dim("compiled")} ${key}  ${Math.round(performance.now() - started)} ms`);
 			if (current === generation && cache.get(key) === task) return html;
 			return html;
 		});
@@ -261,6 +264,7 @@ export function createDevServer({ root, pagesDir = root, config = {}, port = 300
 			for (const watcher of watchers) watcher.close();
 			for (const client of clients) client.end();
 			clients.clear();
+			await workChain;
 			sharedWorker().close();
 			if (server?.listening) await new Promise((resolve) => server.close(resolve));
 		},

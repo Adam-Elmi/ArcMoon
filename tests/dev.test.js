@@ -32,6 +32,7 @@ const freePort = () => new Promise((resolve, reject) => {
 });
 const CLI = fileURLToPath(new URL("../cli/cli.mjs", import.meta.url));
 const buildTime = (code) => "${ " + code + " }$";
+const stripAnsi = (text) => text.replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, "");
 
 beforeEach(async () => {
 	root = await mkdtemp(join(tmpdir(), "arcmoon-dev-"));
@@ -179,7 +180,7 @@ describe("dev server", () => {
 		await new Promise((resolve) => setTimeout(resolve, 100));
 		let compiled = 0;
 		const old = console.log;
-		console.log = (...args) => { if (args.join(" ").includes("compiled /")) compiled++; };
+		console.log = (...args) => { if (stripAnsi(args.join(" ")).includes("compiled /")) compiled++; };
 		try {
 			const responses = await Promise.all([get("/"), get("/")]);
 			await Promise.all(responses.map((response) => response.text()));
@@ -224,6 +225,7 @@ describe("dev server", () => {
 	it("ignores output and node_modules changes", async () => {
 		await mkdir(join(root, "dist"), { recursive: true });
 		await mkdir(join(root, "node_modules/pkg"), { recursive: true });
+		await new Promise((resolve) => setTimeout(resolve, 100));
 		let messages = 0;
 		const old = console.log;
 		console.log = (...args) => { if (args.join(" ").includes("changed:")) messages++; };
